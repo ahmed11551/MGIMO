@@ -1,0 +1,5 @@
+{
+  "name": "МГИМО AI",
+  "description": "Профессиональная платформа для изучения иностранных языков по стандартам МГИМО.",
+  "requestFramePermissions": ["microphone"]
+}
