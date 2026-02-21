@@ -20,7 +20,7 @@ import {
   FileText,
   Send
 } from 'lucide-react';
-import { getWordDetails, generateWordImage, generateSpeech, generateSmartStory, getChatResponse, WordInfo } from './services/geminiService';
+import { getWordDetails, generateWordImage, generateSpeech, generateSmartStory, getChatResponse, generateWordsByTopic, WordInfo } from './services/geminiService';
 import ReactMarkdown from 'react-markdown';
 
 interface Word {
@@ -53,6 +53,7 @@ export default function App() {
   const [storyContent, setStoryContent] = useState<string>('');
   const [chatHistory, setChatHistory] = useState<{role: string, text: string}[]>([]);
   const [chatInput, setChatInput] = useState('');
+  const [generatedWords, setGeneratedWords] = useState<WordInfo[]>([]);
 
   useEffect(() => {
     fetchWords();
@@ -106,6 +107,41 @@ export default function App() {
     setView('dashboard');
     fetchWords();
     fetchStats();
+    setLoading(false);
+  };
+
+  const handleGenerateTopic = async (topic: string) => {
+    setLoading(true);
+    setAiResult(null);
+    setGeneratedWords([]);
+    try {
+      const words = await generateWordsByTopic(topic, 5);
+      setGeneratedWords(words);
+    } catch (e) {
+      alert("Ошибка при генерации слов");
+    }
+    setLoading(false);
+  };
+
+  const saveGeneratedWords = async () => {
+    setLoading(true);
+    for (const w of generatedWords) {
+      await fetch('/api/words', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          word: w.word,
+          translation: w.translation,
+          transcription: w.transcription,
+          example: w.example,
+          image_url: null
+        })
+      });
+    }
+    setGeneratedWords([]);
+    fetchWords();
+    fetchStats();
+    setView('dashboard');
     setLoading(false);
   };
 
@@ -421,9 +457,57 @@ export default function App() {
                   disabled={loading || !newWord}
                   className="absolute right-3 top-3 p-2 bg-brand-primary text-white rounded-2xl shadow-lg shadow-brand-primary/20 disabled:opacity-50"
                 >
-                  {loading ? <Loader2 className="animate-spin" size={24} /> : <Sparkles size={24} />}
+                  {loading && !generatedWords.length && !aiResult ? <Loader2 className="animate-spin" size={24} /> : <Sparkles size={24} />}
                 </button>
               </div>
+
+              {!aiResult && generatedWords.length === 0 && (
+                <div className="pt-4">
+                  <h3 className="font-display font-bold text-lg mb-4 text-brand-primary">Модули МГИМО (AI Генерация)</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    {['Международное право', 'Дипломатия', 'Макроэкономика', 'Политология'].map((topic) => (
+                      <button 
+                        key={topic}
+                        onClick={() => handleGenerateTopic(topic)}
+                        disabled={loading}
+                        className="p-4 bg-white rounded-2xl card-shadow text-left hover:border-brand-primary border border-transparent transition-all disabled:opacity-50"
+                      >
+                        <p className="font-bold text-sm text-brand-primary">{topic}</p>
+                        <p className="text-xs text-slate-400 mt-1">+5 терминов</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {generatedWords.length > 0 && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="space-y-4"
+                >
+                  <div className="flex justify-between items-center">
+                    <h3 className="font-bold text-lg text-brand-primary">Сгенерированные термины</h3>
+                    <button onClick={() => setGeneratedWords([])} className="text-slate-400 hover:text-rose-500"><X size={20}/></button>
+                  </div>
+                  <div className="space-y-3">
+                    {generatedWords.map((w, idx) => (
+                      <div key={idx} className="bg-white p-4 rounded-2xl card-shadow">
+                        <p className="font-bold text-lg">{w.word} <span className="text-sm font-normal text-slate-400 ml-2">{w.transcription}</span></p>
+                        <p className="text-brand-primary font-medium mt-1">{w.translation}</p>
+                        <p className="text-xs text-slate-500 mt-2 italic">"{w.example}"</p>
+                      </div>
+                    ))}
+                  </div>
+                  <button 
+                    onClick={saveGeneratedWords}
+                    disabled={loading}
+                    className="w-full py-4 bg-brand-primary text-white rounded-2xl font-bold shadow-xl shadow-brand-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex justify-center items-center gap-2"
+                  >
+                    {loading ? <Loader2 className="animate-spin" size={20} /> : 'Добавить все в словарь'}
+                  </button>
+                </motion.div>
+              )}
 
               {aiResult && (
                 <motion.div 

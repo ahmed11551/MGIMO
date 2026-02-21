@@ -3,10 +3,38 @@ import { GoogleGenAI, Type } from "@google/genai";
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
 export interface WordInfo {
+  word?: string;
   translation: string;
   transcription: string;
   example: string;
   mnemonic: string;
+}
+
+export async function generateWordsByTopic(topic: string, count: number = 5): Promise<WordInfo[]> {
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: `Generate a list of ${count} advanced English terms (C1-C2 level) related to the topic: "${topic}". 
+    For each word, provide the English word, Russian translation, IPA transcription, a professional example sentence, and a short mnemonic hint.`,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            word: { type: Type.STRING },
+            translation: { type: Type.STRING },
+            transcription: { type: Type.STRING },
+            example: { type: Type.STRING },
+            mnemonic: { type: Type.STRING },
+          },
+          required: ["word", "translation", "transcription", "example", "mnemonic"],
+        },
+      },
+    },
+  });
+
+  return JSON.parse(response.text || "[]");
 }
 
 export async function getWordDetails(word: string, targetLang: string = "Russian"): Promise<WordInfo> {
