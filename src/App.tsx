@@ -14,9 +14,14 @@ import {
   Brain,
   Trash2,
   Loader2,
-  Flame
+  Flame,
+  Bot,
+  MessageSquare,
+  FileText,
+  Send
 } from 'lucide-react';
-import { getWordDetails, generateWordImage, generateSpeech, WordInfo } from './services/geminiService';
+import { getWordDetails, generateWordImage, generateSpeech, generateSmartStory, getChatResponse, WordInfo } from './services/geminiService';
+import ReactMarkdown from 'react-markdown';
 
 interface Word {
   id: number;
@@ -30,7 +35,7 @@ interface Word {
 }
 
 export default function App() {
-  const [view, setView] = useState<'dashboard' | 'add' | 'learn' | 'list' | 'quiz'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'add' | 'learn' | 'list' | 'quiz' | 'tutor' | 'story' | 'chat'>('dashboard');
   const [words, setWords] = useState<Word[]>([]);
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState({ total: 0, due: 0, streak: 0 });
@@ -43,6 +48,11 @@ export default function App() {
   const [quizScore, setQuizScore] = useState(0);
   const [isListening, setIsListening] = useState(false);
   const [pronunciationScore, setPronunciationScore] = useState<number | null>(null);
+  
+  // AI Tutor State
+  const [storyContent, setStoryContent] = useState<string>('');
+  const [chatHistory, setChatHistory] = useState<{role: string, text: string}[]>([]);
+  const [chatInput, setChatInput] = useState('');
 
   useEffect(() => {
     fetchWords();
@@ -189,6 +199,38 @@ export default function App() {
       alert(`Квиз завершен! Ваш счет: ${isCorrect ? quizScore + 1 : quizScore}`);
       setView('dashboard');
     }
+  };
+
+  const generateStory = async () => {
+    if (words.length === 0) return;
+    setLoading(true);
+    setView('story');
+    // Take up to 10 words that need review, or just random words if none are due
+    const targetWords = dueWords.length > 0 ? dueWords.slice(0, 10) : words.slice(0, 10);
+    const story = await generateSmartStory(targetWords.map(w => w.word));
+    setStoryContent(story);
+    setLoading(false);
+  };
+
+  const startChat = () => {
+    setView('chat');
+    setChatHistory([{ role: 'model', text: "Hello! I'm your MGIMO AI Tutor. Let's practice your vocabulary. How are you doing today?" }]);
+  };
+
+  const handleSendMessage = async () => {
+    if (!chatInput.trim()) return;
+    
+    const userMsg = chatInput;
+    setChatInput('');
+    const newHistory = [...chatHistory, { role: 'user', text: userMsg }];
+    setChatHistory(newHistory);
+    
+    setLoading(true);
+    const targetWords = dueWords.length > 0 ? dueWords.slice(0, 5).map(w => w.word) : words.slice(0, 5).map(w => w.word);
+    const response = await getChatResponse(userMsg, chatHistory, targetWords);
+    
+    setChatHistory([...newHistory, { role: 'model', text: response }]);
+    setLoading(false);
   };
 
   const checkPronunciation = () => {
@@ -560,6 +602,149 @@ export default function App() {
             </motion.div>
           )}
 
+          {view === 'tutor' && (
+            <motion.div 
+              key="tutor"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              <div className="flex items-center gap-4 mb-8">
+                <button onClick={() => setView('dashboard')} className="p-2 rounded-full hover:bg-slate-200">
+                  <X size={20} />
+                </button>
+                <h2 className="font-display font-bold text-2xl text-brand-primary">AI Тьютор</h2>
+              </div>
+
+              <div className="bg-gradient-to-br from-brand-primary to-brand-secondary p-6 rounded-[32px] text-white shadow-xl shadow-brand-primary/30 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10"></div>
+                <Bot size={48} className="text-accent mb-4" />
+                <h3 className="text-2xl font-bold mb-2">Практика с ИИ</h3>
+                <p className="text-white/80 text-sm leading-relaxed">
+                  Используйте слова в контексте. Читайте истории, сгенерированные специально для вас, или общайтесь с виртуальным преподавателем МГИМО.
+                </p>
+              </div>
+
+              <div className="space-y-4 mt-6">
+                <button 
+                  onClick={generateStory}
+                  className="w-full p-6 bg-white rounded-3xl card-shadow bento-hover flex items-center gap-4 text-left"
+                >
+                  <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center shrink-0">
+                    <FileText size={28} />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-lg text-brand-primary">Smart Story</h3>
+                    <p className="text-slate-500 text-sm mt-1">Читать историю с вашими словами</p>
+                  </div>
+                </button>
+
+                <button 
+                  onClick={startChat}
+                  className="w-full p-6 bg-white rounded-3xl card-shadow bento-hover flex items-center gap-4 text-left"
+                >
+                  <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center shrink-0">
+                    <MessageSquare size={28} />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-lg text-brand-primary">Roleplay Chat</h3>
+                    <p className="text-slate-500 text-sm mt-1">Диалог с преподавателем</p>
+                  </div>
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+          {view === 'story' && (
+            <motion.div 
+              key="story"
+              initial={{ opacity: 0, x: 50 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="h-full flex flex-col"
+            >
+              <div className="flex items-center gap-4 mb-6">
+                <button onClick={() => setView('tutor')} className="p-2 rounded-full hover:bg-slate-200">
+                  <X size={20} />
+                </button>
+                <h2 className="font-display font-bold text-xl text-brand-primary">Smart Story</h2>
+              </div>
+
+              <div className="flex-1 bg-white rounded-[32px] card-shadow p-6 overflow-y-auto mb-6">
+                {loading ? (
+                  <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-4">
+                    <Loader2 size={40} className="animate-spin text-accent" />
+                    <p className="font-medium animate-pulse">ИИ пишет историю для вас...</p>
+                  </div>
+                ) : (
+                  <div className="prose prose-slate prose-p:leading-relaxed prose-strong:text-brand-primary prose-strong:bg-brand-primary/10 prose-strong:px-1 prose-strong:rounded">
+                    <ReactMarkdown>{storyContent}</ReactMarkdown>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+
+          {view === 'chat' && (
+            <motion.div 
+              key="chat"
+              initial={{ opacity: 0, x: 50 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="h-[calc(100vh-140px)] flex flex-col"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <button onClick={() => setView('tutor')} className="p-2 rounded-full hover:bg-slate-200">
+                    <X size={20} />
+                  </button>
+                  <div>
+                    <h2 className="font-display font-bold text-lg text-brand-primary">AI Преподаватель</h2>
+                    <p className="text-xs text-slate-500">Используйте изучаемые слова</p>
+                  </div>
+                </div>
+                <div className="w-10 h-10 bg-brand-primary text-accent rounded-full flex items-center justify-center shadow-md">
+                  <Bot size={20} />
+                </div>
+              </div>
+
+              <div className="flex-1 bg-white rounded-[32px] card-shadow p-4 overflow-y-auto mb-4 space-y-4 flex flex-col">
+                {chatHistory.map((msg, idx) => (
+                  <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[80%] p-4 rounded-2xl ${msg.role === 'user' ? 'bg-brand-primary text-white rounded-tr-sm' : 'bg-slate-100 text-slate-800 rounded-tl-sm'}`}>
+                      <p className="text-sm leading-relaxed">{msg.text}</p>
+                    </div>
+                  </div>
+                ))}
+                {loading && (
+                  <div className="flex justify-start">
+                    <div className="bg-slate-100 p-4 rounded-2xl rounded-tl-sm flex items-center gap-2">
+                      <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></div>
+                      <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                      <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="relative">
+                <input 
+                  type="text" 
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                  placeholder="Напишите ответ..."
+                  className="w-full p-4 pr-14 bg-white rounded-2xl card-shadow outline-none focus:ring-2 ring-brand-primary/20"
+                />
+                <button 
+                  onClick={handleSendMessage}
+                  disabled={loading || !chatInput.trim()}
+                  className="absolute right-2 top-2 p-2 bg-brand-primary text-white rounded-xl shadow-md disabled:opacity-50 hover:bg-brand-secondary transition-colors"
+                >
+                  <Send size={20} />
+                </button>
+              </div>
+            </motion.div>
+          )}
+
           {view === 'list' && (
             <motion.div 
               key="list"
@@ -630,8 +815,14 @@ export default function App() {
           <Trophy size={28} />
         </button>
         <button 
+          onClick={() => setView('tutor')}
+          className={`p-2 transition-colors ${['tutor', 'story', 'chat'].includes(view) ? 'text-brand-primary' : 'text-slate-400'}`}
+        >
+          <Bot size={28} />
+        </button>
+        <button 
           onClick={() => setView('list')}
-          className={`p-2 transition-colors ${view === 'list' ? 'text-brand-primary' : 'text-slate-300'}`}
+          className={`p-2 transition-colors ${view === 'list' ? 'text-brand-primary' : 'text-slate-400'}`}
         >
           <BookOpen size={28} />
         </button>
