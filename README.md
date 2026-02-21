@@ -58,9 +58,21 @@ NODE_ENV=production npm run dev
 
 ## Telegram Mini App
 
+**Бот:** [@MGIMOOUIZMODE_bot](https://t.me/MGIMOOUIZMODE_bot)
+
+### Настройка бота (команды, меню, описание)
+
+```bash
+BOT_TOKEN=xxx APP_URL=https://your-app.vercel.app node scripts/setup-telegram-bot.mjs
+```
+
+Скрипт устанавливает: команды `/start`, `/app`, описание, кнопку меню с Web App URL.
+
+### Ручная настройка через BotFather
+
 1. Создайте бота через [@BotFather](https://t.me/BotFather)
-2. Настройте Web App: `/newapp` или через BotFather → Bot Settings → Menu Button
-3. Укажите URL вашего приложения (например, `https://your-domain.com`)
+2. Настройте Web App: `/newapp` или Bot Settings → Menu Button
+3. Укажите URL приложения (например, `https://mgimo.vercel.app`)
 4. Приложение автоматически:
    - подключает Telegram Web App SDK
    - разворачивается на весь экран
