@@ -7,6 +7,7 @@ export interface WordInfo {
   translation: string;
   transcription: string;
   example: string;
+  example_translation: string;
   mnemonic: string;
 }
 
@@ -14,7 +15,7 @@ export async function generateWordsByTopic(topic: string, count: number = 5): Pr
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: `Generate a list of ${count} advanced English terms (C1-C2 level) related to the topic: "${topic}". 
-    For each word, provide the English word, Russian translation, IPA transcription, a professional example sentence, and a short mnemonic hint.`,
+    For each word provide: English word, Russian translation, IPA transcription, a professional example sentence in English, Russian translation of that example sentence, and a short mnemonic hint.`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -26,21 +27,23 @@ export async function generateWordsByTopic(topic: string, count: number = 5): Pr
             translation: { type: Type.STRING },
             transcription: { type: Type.STRING },
             example: { type: Type.STRING },
+            example_translation: { type: Type.STRING },
             mnemonic: { type: Type.STRING },
           },
-          required: ["word", "translation", "transcription", "example", "mnemonic"],
+          required: ["word", "translation", "transcription", "example", "example_translation", "mnemonic"],
         },
       },
     },
   });
 
-  return JSON.parse(response.text || "[]");
+  const items = JSON.parse(response.text || "[]");
+  return Array.isArray(items) ? items.map((w: any) => ({ ...w, example_translation: w.example_translation ?? '' })) : [];
 }
 
 export async function getWordDetails(word: string, targetLang: string = "Russian"): Promise<WordInfo> {
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
-    contents: `Analyze the word "${word}" for a language learner. Target language: ${targetLang}. Provide translation, IPA transcription, a simple example sentence, and a short mnemonic hint.`,
+    contents: `Analyze the word "${word}" for a language learner. Target language: ${targetLang}. Provide: translation, IPA transcription, a simple example sentence in English, Russian translation of that example sentence, and a short mnemonic hint.`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -49,14 +52,16 @@ export async function getWordDetails(word: string, targetLang: string = "Russian
           translation: { type: Type.STRING },
           transcription: { type: Type.STRING },
           example: { type: Type.STRING },
+          example_translation: { type: Type.STRING },
           mnemonic: { type: Type.STRING },
         },
-        required: ["translation", "transcription", "example", "mnemonic"],
+        required: ["translation", "transcription", "example", "example_translation", "mnemonic"],
       },
     },
   });
 
-  return JSON.parse(response.text);
+  const data = JSON.parse(response.text);
+  return { ...data, example_translation: data.example_translation ?? '' };
 }
 
 export async function generateWordImage(word: string): Promise<string | null> {

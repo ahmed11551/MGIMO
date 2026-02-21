@@ -28,7 +28,17 @@
   box-shadow: 0 4px 24px -4px rgba(0, 51, 102, 0.08), 0 8px 16px -6px rgba(0, 51, 102, 0.04);
 }
 
+/* Focus states for accessibility */
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  @apply outline-none ring-2 ring-brand-primary/40 ring-offset-2;
+}
+
 .bento-hover {
   @apply transition-all duration-300 hover:shadow-xl hover:-translate-y-1 hover:border-accent/30;
+}
+
+/* Table polish */
+table tbody tr {
+  @apply transition-colors duration-150;
 }
 

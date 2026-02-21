@@ -18,10 +18,27 @@ import {
   Bot,
   MessageSquare,
   FileText,
-  Send
+  Send,
+  Download,
+  Upload,
+  Copy,
+  LayoutGrid,
+  List,
+  Moon,
+  Sun,
+  Bell
 } from 'lucide-react';
-import { getWordDetails, generateWordImage, generateSpeech, generateSmartStory, getChatResponse, generateWordsByTopic, WordInfo } from './services/geminiService';
+import { API_BASE } from './config';
+import { getWordDetails, generateWordImage, generateSpeech, generateSmartStory, getChatResponse, generateWordsByTopic, WordInfo } from './services/apiClient';
+import { useToast } from './Toast';
+import { SkeletonList, SkeletonStats } from './Skeleton';
 import ReactMarkdown from 'react-markdown';
+
+interface Category {
+  id: number;
+  name: string;
+  sort_order: number;
+}
 
 interface Word {
   id: number;
@@ -29,13 +46,17 @@ interface Word {
   translation: string;
   transcription: string;
   example: string;
+  example_translation?: string;
   image_url: string;
+  category_id?: number;
+  category_name?: string;
   level: number;
   next_review: string;
 }
 
 export default function App() {
-  const [view, setView] = useState<'dashboard' | 'add' | 'learn' | 'list' | 'quiz' | 'tutor' | 'story' | 'chat'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'add' | 'learn' | 'list' | 'quiz' | 'tutor' | 'story' | 'chat' | 'settings'>('dashboard');
+  const { toast } = useToast();
   const [words, setWords] = useState<Word[]>([]);
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState({ total: 0, due: 0, streak: 0 });
@@ -54,22 +75,64 @@ export default function App() {
   const [chatHistory, setChatHistory] = useState<{role: string, text: string}[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [generatedWords, setGeneratedWords] = useState<WordInfo[]>([]);
+  
+  // List view: search, sort, import, view mode
+  const [searchQuery, setSearchQuery] = useState('');
+  const [listSort, setListSort] = useState<'word' | 'level' | 'due'>('word');
+  const [listViewMode, setListViewMode] = useState<'cards' | 'table'>('cards');
+  const [categoryFilter, setCategoryFilter] = useState<string>('');
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
+  const [lastGeneratedTopic, setLastGeneratedTopic] = useState<string>('');
+  const [showImport, setShowImport] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importFormat, setImportFormat] = useState<'json' | 'csv' | 'text'>('text');
+  const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [selectedWordDetail, setSelectedWordDetail] = useState<Word | null>(null);
+  const [darkMode, setDarkMode] = useState(false);
+  const [wordsLoading, setWordsLoading] = useState(true);
+  const [statsLoading, setStatsLoading] = useState(true);
 
   useEffect(() => {
     fetchWords();
     fetchStats();
+    fetchCategories();
   }, []);
 
+  const fetchCategories = async () => {
+    try {
+      const res = await fetch(API_BASE + '/api/categories');
+      if (res.ok) setCategories(await res.json());
+    } catch {}
+  };
+
   const fetchWords = async () => {
-    const res = await fetch('/api/words');
-    const data = await res.json();
-    setWords(data);
+    setWordsLoading(true);
+    try {
+      const res = await fetch(API_BASE + '/api/words');
+      if (!res.ok) throw new Error('Ошибка загрузки слов');
+      const data = await res.json();
+      setWords(data);
+    } catch (e) {
+      console.error('fetchWords:', e);
+      setWords([]);
+    } finally {
+      setWordsLoading(false);
+    }
   };
 
   const fetchStats = async () => {
-    const res = await fetch('/api/stats');
-    const data = await res.json();
-    setStats(data);
+    setStatsLoading(true);
+    try {
+      const res = await fetch(API_BASE + '/api/stats');
+      if (!res.ok) throw new Error('Ошибка загрузки статистики');
+      const data = await res.json();
+      setStats(data);
+    } catch (e) {
+      console.error('fetchStats:', e);
+    } finally {
+      setStatsLoading(false);
+    }
   };
 
   const handleAddWord = async () => {
@@ -82,6 +145,7 @@ export default function App() {
       setAiImage(image);
     } catch (e) {
       console.error(e);
+      toast('Ошибка AI. Проверьте GEMINI_API_KEY в .env', 'error');
     } finally {
       setLoading(false);
     }
@@ -90,43 +154,53 @@ export default function App() {
   const saveWord = async () => {
     if (!aiResult) return;
     setLoading(true);
-    await fetch('/api/words', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        word: newWord,
-        translation: aiResult.translation,
-        transcription: aiResult.transcription,
-        example: aiResult.example,
-        image_url: aiImage
-      })
-    });
-    setNewWord('');
-    setAiResult(null);
-    setAiImage(null);
-    setView('dashboard');
-    fetchWords();
-    fetchStats();
-    setLoading(false);
+    try {
+      const res = await fetch(API_BASE + '/api/words', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          word: newWord,
+          translation: aiResult.translation,
+          transcription: aiResult.transcription,
+          example: aiResult.example,
+          example_translation: aiResult.example_translation,
+          image_url: aiImage,
+          category_id: selectedCategoryId
+        })
+      });
+      if (!res.ok) throw new Error('Не удалось сохранить');
+      setNewWord('');
+      setAiResult(null);
+      setAiImage(null);
+      setView('dashboard');
+      fetchWords();
+      fetchStats();
+    } catch (e) {
+      toast('Ошибка сохранения. Проверьте подключение.', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleGenerateTopic = async (topic: string) => {
     setLoading(true);
     setAiResult(null);
     setGeneratedWords([]);
+    setLastGeneratedTopic(topic);
     try {
       const words = await generateWordsByTopic(topic, 5);
       setGeneratedWords(words);
     } catch (e) {
-      alert("Ошибка при генерации слов");
+      toast('Ошибка при генерации слов', 'error');
     }
     setLoading(false);
   };
 
   const saveGeneratedWords = async () => {
     setLoading(true);
+    const topicCatId = categories.find(c => c.name === lastGeneratedTopic)?.id ?? selectedCategoryId;
     for (const w of generatedWords) {
-      await fetch('/api/words', {
+      await fetch(API_BASE + '/api/words', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -134,7 +208,9 @@ export default function App() {
           translation: w.translation,
           transcription: w.transcription,
           example: w.example,
-          image_url: null
+          example_translation: w.example_translation,
+          image_url: null,
+          category_id: topicCatId
         })
       });
     }
@@ -147,12 +223,16 @@ export default function App() {
 
   const handleReview = async (quality: number) => {
     const word = dueWords[currentLearnIndex];
-    await fetch(`/api/words/${word.id}/review`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ quality })
-    });
-    
+    try {
+      const res = await fetch(API_BASE + `/api/words/${word.id}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quality })
+      });
+      if (!res.ok) throw new Error();
+    } catch {
+      return;
+    }
     if (currentLearnIndex < dueWords.length - 1) {
       setCurrentLearnIndex(prev => prev + 1);
       setIsFlipped(false);
@@ -199,16 +279,90 @@ export default function App() {
   };
 
   const deleteWord = async (id: number) => {
-    await fetch(`/api/words/${id}`, { method: 'DELETE' });
-    fetchWords();
-    fetchStats();
+    if (!confirm('Удалить это слово?')) return;
+    try {
+      const res = await fetch(API_BASE + `/api/words/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchWords();
+        fetchStats();
+      }
+    } catch {}
+  };
+
+  const exportWords = async (format: 'json' | 'csv') => {
+    try {
+      const res = await fetch(API_BASE + `/api/words/export?format=${format}`);
+      if (!res.ok) throw new Error();
+      const blob = format === 'csv' 
+        ? new Blob([await res.text()], { type: 'text/csv;charset=utf-8' })
+        : new Blob([JSON.stringify(await res.json(), null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `mgimo-words.${format === 'csv' ? 'csv' : 'json'}`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch {
+      toast('Ошибка экспорта', 'error');
+    }
+  };
+
+  const importWords = async () => {
+    if (!importText.trim()) return;
+    setLoading(true);
+    try {
+      let data: unknown = importText;
+      if (importFormat === 'json') {
+        try {
+          data = JSON.parse(importText);
+        } catch {
+          throw new Error('Неверный JSON');
+        }
+      }
+      const res = await fetch(API_BASE + '/api/words/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ format: importFormat, data })
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Ошибка импорта');
+      toast(`Импортировано: ${json.imported} слов`, 'success');
+      setShowImport(false);
+      setImportText('');
+      fetchWords();
+      fetchStats();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Ошибка импорта', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const copyWord = (word: Word) => {
+    const parts = [`${word.word} — ${word.translation}`, word.transcription, word.example, word.example_translation].filter(Boolean);
+    navigator.clipboard?.writeText(parts.join('\n')).then(() => {
+      setCopiedId(word.id);
+      setTimeout(() => setCopiedId(null), 1500);
+    });
   };
 
   const dueWords = words.filter(w => new Date(w.next_review) <= new Date());
+  
+  // Filtered and sorted list
+  const filteredWords = words
+    .filter(w => {
+      if (searchQuery && !w.word.toLowerCase().includes(searchQuery.toLowerCase()) && !(w.translation || '').toLowerCase().includes(searchQuery.toLowerCase())) return false;
+      if (categoryFilter && String(w.category_id) !== categoryFilter) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      if (listSort === 'word') return a.word.localeCompare(b.word);
+      if (listSort === 'level') return b.level - a.level;
+      return new Date(a.next_review).getTime() - new Date(b.next_review).getTime();
+    });
 
   const startQuiz = () => {
     if (words.length < 4) {
-      alert("Для квиза нужно минимум 4 слова в словаре.");
+      toast('Для квиза нужно минимум 4 слова в словаре.', 'info');
       return;
     }
     setQuizScore(0);
@@ -218,21 +372,24 @@ export default function App() {
   };
 
   const generateQuizOptions = (correctWord: Word) => {
-    const others = words.filter(w => w.id !== correctWord.id).sort(() => 0.5 - Math.random()).slice(0, 3);
-    const options = [correctWord.translation, ...others.map(w => w.translation)].sort(() => 0.5 - Math.random());
-    setQuizOptions(options);
+    const others = words.filter(w => w.id !== correctWord.id).sort(() => 0.5 - Math.random());
+    const wrongTranslations = [...new Set(others.map(w => w.translation).filter(Boolean))].slice(0, 3);
+    const allOptions = [correctWord.translation, ...wrongTranslations];
+    const unique = [...new Set(allOptions)].sort(() => 0.5 - Math.random());
+    setQuizOptions(unique.length >= 4 ? unique.slice(0, 4) : unique);
   };
 
+  const quizLength = Math.min(10, words.length);
   const handleQuizAnswer = (answer: string) => {
     const isCorrect = answer === words[currentLearnIndex].translation;
     if (isCorrect) setQuizScore(prev => prev + 1);
     
-    if (currentLearnIndex < words.length - 1 && currentLearnIndex < 9) {
+    if (currentLearnIndex < quizLength - 1) {
       const nextIndex = currentLearnIndex + 1;
       setCurrentLearnIndex(nextIndex);
       generateQuizOptions(words[nextIndex]);
     } else {
-      alert(`Квиз завершен! Ваш счет: ${isCorrect ? quizScore + 1 : quizScore}`);
+      toast(`Квиз завершен! Ваш счет: ${isCorrect ? quizScore + 1 : quizScore}`, 'success');
       setView('dashboard');
     }
   };
@@ -241,11 +398,15 @@ export default function App() {
     if (words.length === 0) return;
     setLoading(true);
     setView('story');
-    // Take up to 10 words that need review, or just random words if none are due
-    const targetWords = dueWords.length > 0 ? dueWords.slice(0, 10) : words.slice(0, 10);
-    const story = await generateSmartStory(targetWords.map(w => w.word));
-    setStoryContent(story);
-    setLoading(false);
+    try {
+      const targetWords = dueWords.length > 0 ? dueWords.slice(0, 10) : words.slice(0, 10);
+      const story = await generateSmartStory(targetWords.map(w => w.word));
+      setStoryContent(story);
+    } catch (e) {
+      setStoryContent('Не удалось сгенерировать историю. Проверьте подключение и GEMINI_API_KEY.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const startChat = () => {
@@ -262,17 +423,21 @@ export default function App() {
     setChatHistory(newHistory);
     
     setLoading(true);
-    const targetWords = dueWords.length > 0 ? dueWords.slice(0, 5).map(w => w.word) : words.slice(0, 5).map(w => w.word);
-    const response = await getChatResponse(userMsg, chatHistory, targetWords);
-    
-    setChatHistory([...newHistory, { role: 'model', text: response }]);
-    setLoading(false);
+    try {
+      const targetWords = dueWords.length > 0 ? dueWords.slice(0, 5).map(w => w.word) : words.slice(0, 5).map(w => w.word);
+      const response = await getChatResponse(userMsg, chatHistory, targetWords);
+      setChatHistory([...newHistory, { role: 'model', text: response }]);
+    } catch (e) {
+      setChatHistory([...newHistory, { role: 'model', text: 'Извините, произошла ошибка. Попробуйте ещё раз.' }]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const checkPronunciation = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      alert("Распознавание речи не поддерживается в вашем браузере.");
+      toast('Распознавание речи не поддерживается в вашем браузере.', 'info');
       return;
     }
 
@@ -317,7 +482,7 @@ export default function App() {
             <Flame size={16} className={stats.streak > 0 ? "fill-orange-500" : ""} />
             <span>{stats.streak}</span>
           </div>
-          <button className="p-2 rounded-full hover:bg-slate-200 transition-colors">
+          <button onClick={() => setView('settings')} className="p-2 rounded-full hover:bg-slate-200 transition-colors" title="Настройки" aria-label="Настройки">
             <Settings size={20} className="text-brand-primary" />
           </button>
         </div>
@@ -335,14 +500,20 @@ export default function App() {
             >
               {/* Stats Card */}
               <div className="grid grid-cols-2 gap-4">
-                <div className="glass p-5 rounded-3xl card-shadow">
-                  <p className="text-slate-400 text-xs font-medium uppercase tracking-wider mb-1">Слов в базе</p>
-                  <p className="text-3xl font-display font-bold">{stats.total}</p>
-                </div>
-                <div className="bg-brand-primary p-5 rounded-3xl shadow-xl shadow-brand-primary/20 text-white">
-                  <p className="text-white/60 text-xs font-medium uppercase tracking-wider mb-1">На сегодня</p>
-                  <p className="text-3xl font-display font-bold">{stats.due}</p>
-                </div>
+                {statsLoading ? (
+                  <SkeletonStats />
+                ) : (
+                  <>
+                    <div className="glass p-5 rounded-3xl card-shadow">
+                      <p className="text-slate-400 text-xs font-medium uppercase tracking-wider mb-1">Слов в базе</p>
+                      <p className="text-3xl font-display font-bold">{stats.total}</p>
+                    </div>
+                    <div className="bg-brand-primary p-5 rounded-3xl shadow-xl shadow-brand-primary/20 text-white">
+                      <p className="text-white/60 text-xs font-medium uppercase tracking-wider mb-1">На сегодня</p>
+                      <p className="text-3xl font-display font-bold">{stats.due}</p>
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Action Cards */}
@@ -404,8 +575,15 @@ export default function App() {
                   <button onClick={() => setView('list')} className="text-brand-primary text-sm font-semibold">Все</button>
                 </div>
                 <div className="space-y-3">
-                  {words.slice(0, 3).map(word => (
-                    <div key={word.id} className="bg-white p-4 rounded-2xl flex items-center justify-between card-shadow">
+                  {wordsLoading ? (
+                    <SkeletonList count={3} />
+                  ) : (
+                  words.slice(0, 3).map(word => (
+                    <button
+                      key={word.id}
+                      onClick={() => setSelectedWordDetail(word)}
+                      className="w-full bg-white p-4 rounded-2xl flex items-center justify-between card-shadow text-left hover:shadow-lg hover:border-brand-primary/20 border border-transparent transition-all"
+                    >
                       <div className="flex items-center gap-3">
                         {word.image_url ? (
                           <img src={word.image_url} className="w-10 h-10 rounded-lg object-cover" alt="" referrerPolicy="no-referrer" />
@@ -419,13 +597,50 @@ export default function App() {
                           <p className="text-slate-400 text-xs">{word.translation}</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {word.category_name && <span className="text-[10px] bg-accent/20 text-accent px-2 py-0.5 rounded-full font-medium">{word.category_name}</span>}
                         <span className="text-[10px] bg-slate-100 px-2 py-1 rounded-full text-slate-500 font-bold">LVL {word.level}</span>
                       </div>
-                    </div>
-                  ))}
+                    </button>
+                  ))
+                  )}
                 </div>
               </div>
+
+              {/* Word Detail Modal */}
+              {selectedWordDetail && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setSelectedWordDetail(null)}>
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="bg-white rounded-3xl p-6 w-full max-w-md card-shadow"
+                  >
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <h3 className="text-2xl font-bold text-brand-primary">{selectedWordDetail.word}</h3>
+                        <p className="text-slate-400 font-mono text-sm">{selectedWordDetail.transcription}</p>
+                        <p className="text-lg font-semibold mt-1">{selectedWordDetail.translation}</p>
+                      </div>
+                      <button onClick={() => setSelectedWordDetail(null)} className="p-2 hover:bg-slate-100 rounded-full">
+                        <X size={20} />
+                      </button>
+                    </div>
+                    {selectedWordDetail.example && (
+                      <div className="bg-slate-50 p-4 rounded-2xl mb-4">
+                        <p className="text-xs text-slate-400 uppercase font-bold mb-1">Пример</p>
+                        <p className="text-sm italic">"{selectedWordDetail.example}"</p>
+                        {selectedWordDetail.example_translation && (
+                          <p className="text-sm text-brand-primary font-medium mt-1">"{selectedWordDetail.example_translation}"</p>
+                        )}
+                      </div>
+                    )}
+                    <button onClick={() => { setSelectedWordDetail(null); setView('list'); }} className="w-full py-3 bg-brand-primary text-white rounded-xl font-semibold">
+                      Открыть в словаре
+                    </button>
+                  </motion.div>
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -496,6 +711,7 @@ export default function App() {
                         <p className="font-bold text-lg">{w.word} <span className="text-sm font-normal text-slate-400 ml-2">{w.transcription}</span></p>
                         <p className="text-brand-primary font-medium mt-1">{w.translation}</p>
                         <p className="text-xs text-slate-500 mt-2 italic">"{w.example}"</p>
+                        {w.example_translation && <p className="text-xs text-brand-primary/80 mt-1">"{w.example_translation}"</p>}
                       </div>
                     ))}
                   </div>
@@ -530,9 +746,23 @@ export default function App() {
                   </div>
 
                   <div className="space-y-4">
-                    <div className="bg-slate-50 p-4 rounded-2xl">
-                      <p className="text-xs text-slate-400 uppercase font-bold mb-1">Пример</p>
+                    <div className="bg-slate-50 p-4 rounded-2xl space-y-2">
+                      <p className="text-xs text-slate-400 uppercase font-bold">Пример</p>
                       <p className="text-sm italic">"{aiResult.example}"</p>
+                      {aiResult.example_translation && (
+                        <p className="text-sm text-brand-primary font-medium">"{aiResult.example_translation}"</p>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="text-xs text-slate-400">Категория:</span>
+                      <select
+                        value={selectedCategoryId ?? ''}
+                        onChange={(e) => setSelectedCategoryId(e.target.value ? Number(e.target.value) : null)}
+                        className="text-sm px-3 py-1.5 rounded-lg border border-slate-200 bg-white"
+                      >
+                        <option value="">— не выбрана</option>
+                        {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
                     </div>
                     <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100">
                       <p className="text-xs text-amber-600 uppercase font-bold mb-1">Мнемоника</p>
@@ -551,13 +781,26 @@ export default function App() {
             </motion.div>
           )}
 
-          {view === 'learn' && dueWords.length > 0 && (
+          {view === 'learn' && (
             <motion.div 
               key="learn"
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               className="h-full flex flex-col"
             >
+              {dueWords.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
+                  <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mb-4">
+                    <Check size={40} className="text-emerald-600" />
+                  </div>
+                  <h3 className="font-bold text-xl text-brand-primary mb-2">Всё повторено!</h3>
+                  <p className="text-slate-500 text-sm mb-6">Нет слов для повторения на сегодня. Загляните завтра или добавьте новые термины.</p>
+                  <button onClick={() => setView('dashboard')} className="px-6 py-3 bg-brand-primary text-white rounded-xl font-semibold">
+                    На главную
+                  </button>
+                </div>
+              ) : (
+              <>
               <div className="flex justify-between items-center mb-8">
                 <button onClick={() => setView('dashboard')} className="p-2 rounded-full hover:bg-slate-100">
                   <X size={20} />
@@ -594,9 +837,12 @@ export default function App() {
                       <img src={dueWords[currentLearnIndex].image_url} className="w-32 h-32 rounded-3xl object-cover mb-6 shadow-lg" alt="" referrerPolicy="no-referrer" />
                     )}
                     <h2 className="text-3xl font-display font-bold text-brand-primary text-center mb-4">{dueWords[currentLearnIndex].translation}</h2>
-                    <div className="bg-slate-50 p-4 rounded-2xl w-full">
-                      <p className="text-xs text-slate-400 uppercase font-bold mb-1 text-center">Пример</p>
+                    <div className="bg-slate-50 p-4 rounded-2xl w-full space-y-2">
+                      <p className="text-xs text-slate-400 uppercase font-bold text-center">Пример</p>
                       <p className="text-sm italic text-center">"{dueWords[currentLearnIndex].example}"</p>
+                      {dueWords[currentLearnIndex].example_translation && (
+                        <p className="text-sm text-brand-primary font-medium text-center">"{dueWords[currentLearnIndex].example_translation}"</p>
+                      )}
                     </div>
                   </div>
                 </motion.div>
@@ -647,6 +893,8 @@ export default function App() {
                   <span className="text-sm">7+ дн</span>
                 </button>
               </div>
+              </>
+              )}
             </motion.div>
           )}
 
@@ -662,7 +910,7 @@ export default function App() {
                   <X size={20} />
                 </button>
                 <div className="text-brand-primary font-bold">Счет: {quizScore}</div>
-                <span className="text-xs font-bold text-slate-400">{currentLearnIndex + 1}/10</span>
+                <span className="text-xs font-bold text-slate-400">{currentLearnIndex + 1}/{quizLength}</span>
               </div>
 
               <div className="flex-1 flex flex-col items-center justify-center">
@@ -712,7 +960,8 @@ export default function App() {
               <div className="space-y-4 mt-6">
                 <button 
                   onClick={generateStory}
-                  className="w-full p-6 bg-white rounded-3xl card-shadow bento-hover flex items-center gap-4 text-left"
+                  disabled={words.length === 0}
+                  className={`w-full p-6 rounded-3xl card-shadow flex items-center gap-4 text-left transition-all ${words.length > 0 ? 'bg-white bento-hover' : 'bg-slate-100 opacity-60 cursor-not-allowed'}`}
                 >
                   <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center shrink-0">
                     <FileText size={28} />
@@ -814,7 +1063,7 @@ export default function App() {
                   type="text" 
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                  onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
                   placeholder="Напишите ответ..."
                   className="w-full p-4 pr-14 bg-white rounded-2xl card-shadow outline-none focus:ring-2 ring-brand-primary/20"
                 />
@@ -836,48 +1085,263 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               className="space-y-6"
             >
-              <div className="flex items-center gap-4 mb-8">
+              <div className="flex items-center gap-4 mb-4">
                 <button onClick={() => setView('dashboard')} className="p-2 rounded-full hover:bg-slate-100">
                   <X size={20} />
                 </button>
                 <h2 className="font-display font-bold text-2xl">Весь словарь</h2>
               </div>
 
+              {/* Search & Category */}
+              <div className="flex gap-3">
+                <div className="relative flex-1">
+                  <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Поиск..."
+                    className="w-full pl-12 pr-4 py-3 bg-white rounded-2xl card-shadow outline-none focus:ring-2 ring-brand-primary/20"
+                  />
+                </div>
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  className="px-4 py-3 rounded-2xl border border-slate-200 bg-white text-sm font-medium min-w-[140px]"
+                >
+                  <option value="">Все категории</option>
+                  {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+
+              {/* Sort, View & Actions */}
+              <div className="flex flex-wrap gap-2 items-center justify-between">
+                <div className="flex gap-2 items-center">
+                  {(['word', 'level', 'due'] as const).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setListSort(s)}
+                      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                        listSort === s ? 'bg-brand-primary text-white' : 'bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      {s === 'word' ? 'А-Я' : s === 'level' ? 'Уровень' : 'К повтору'}
+                    </button>
+                  ))}
+                  <div className="flex rounded-lg overflow-hidden border border-slate-200">
+                    <button
+                      onClick={() => setListViewMode('cards')}
+                      className={`p-2 ${listViewMode === 'cards' ? 'bg-brand-primary text-white' : 'bg-slate-100 text-slate-500'}`}
+                      title="Карточки"
+                    >
+                      <LayoutGrid size={18} />
+                    </button>
+                    <button
+                      onClick={() => setListViewMode('table')}
+                      className={`p-2 ${listViewMode === 'table' ? 'bg-brand-primary text-white' : 'bg-slate-100 text-slate-500'}`}
+                      title="Таблица"
+                    >
+                      <List size={18} />
+                    </button>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => exportWords('csv')} className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600" title="Экспорт CSV">
+                    <Download size={18} />
+                  </button>
+                  <button onClick={() => setShowImport(true)} className="p-2 rounded-xl bg-brand-primary text-white hover:bg-brand-secondary" title="Импорт">
+                    <Upload size={18} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Import Modal */}
+              {showImport && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="bg-white rounded-3xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto card-shadow"
+                  >
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="font-bold text-lg text-brand-primary">Импорт слов</h3>
+                      <button onClick={() => setShowImport(false)} className="p-2 hover:bg-slate-100 rounded-full">
+                        <X size={20} />
+                      </button>
+                    </div>
+                    <p className="text-sm text-slate-500 mb-3">
+                      Вставьте данные из @mgimomobot, botengl или другого источника. Форматы: JSON, CSV, текст (слово — перевод).
+                    </p>
+                    <select
+                      value={importFormat}
+                      onChange={(e) => setImportFormat(e.target.value as 'json' | 'csv' | 'text')}
+                      className="w-full mb-3 p-3 rounded-xl border border-slate-200"
+                    >
+                      <option value="text">Текст (слово — перевод)</option>
+                      <option value="csv">CSV</option>
+                      <option value="json">JSON</option>
+                    </select>
+                    <textarea
+                      value={importText}
+                      onChange={(e) => setImportText(e.target.value)}
+                      placeholder={importFormat === 'json' ? '[{"word":"...","translation":"..."}]' : importFormat === 'csv' ? 'word,translation,transcription,example' : 'word — перевод\nword2 — перевод2'}
+                      className="w-full h-40 p-4 rounded-xl border border-slate-200 font-mono text-sm resize-none"
+                    />
+                    <div className="flex gap-4 mt-4">
+                      <button
+                        onClick={importWords}
+                        disabled={loading || !importText.trim()}
+                        className="flex-1 py-3 bg-brand-primary text-white rounded-xl font-bold disabled:opacity-50"
+                      >
+                        {loading ? <Loader2 className="animate-spin mx-auto" size={20} /> : 'Импортировать'}
+                      </button>
+                      <button onClick={() => setShowImport(false)} className="px-6 py-3 bg-slate-100 rounded-xl font-medium">
+                        Отмена
+                      </button>
+                    </div>
+                  </motion.div>
+                </div>
+              )}
+
+              {listViewMode === 'table' ? (
+                <div className="bg-white rounded-2xl card-shadow overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-100">
+                          <th className="text-left p-3 font-semibold text-brand-primary">Слово</th>
+                          <th className="text-left p-3 font-semibold text-brand-primary">Перевод</th>
+                          <th className="text-left p-3 font-semibold text-brand-primary hidden sm:table-cell">Пример</th>
+                          <th className="text-left p-3 font-semibold text-brand-primary hidden md:table-cell">Перевод примера</th>
+                          <th className="p-3 font-semibold text-brand-primary w-16">LVL</th>
+                          <th className="p-3 w-20"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredWords.map((word) => (
+                          <tr key={word.id} className="border-b border-slate-50 hover:bg-slate-50/50">
+                            <td className="p-3 font-medium">{word.word}</td>
+                            <td className="p-3 text-slate-600">{word.translation}</td>
+                            <td className="p-3 text-slate-500 italic hidden sm:table-cell max-w-[180px] truncate" title={word.example}>{word.example || '—'}</td>
+                            <td className="p-3 text-brand-primary/80 hidden md:table-cell max-w-[180px] truncate" title={word.example_translation}>{word.example_translation || '—'}</td>
+                            <td className="p-3"><span className="text-[10px] bg-brand-primary/10 text-brand-primary px-2 py-0.5 rounded-full font-bold">LVL {word.level}</span></td>
+                            <td className="p-3 flex gap-1">
+                              <button onClick={() => copyWord(word)} className={`p-1.5 rounded-lg transition-colors ${copiedId === word.id ? 'text-emerald-500 bg-emerald-50' : 'text-slate-300 hover:text-brand-primary hover:bg-slate-100'}`} title={copiedId === word.id ? 'Скопировано' : 'Копировать'}><Copy size={16} /></button>
+                              <button onClick={() => deleteWord(word.id)} className="p-1.5 text-slate-300 hover:text-rose-500 rounded-lg hover:bg-rose-50"><Trash2 size={16} /></button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
               <div className="space-y-3">
-                {words.map((word, index) => (
+                {filteredWords.map((word, index) => (
                   <motion.div 
                     key={word.id} 
                     initial={{ opacity: 0, y: 15 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05, duration: 0.3 }}
+                    transition={{ delay: Math.min(index * 0.03, 0.3), duration: 0.3 }}
                     className="bg-white p-4 rounded-2xl flex items-center justify-between card-shadow"
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
                       {word.image_url ? (
-                        <img src={word.image_url} className="w-12 h-12 rounded-xl object-cover" alt="" referrerPolicy="no-referrer" />
+                        <img src={word.image_url} className="w-12 h-12 rounded-xl object-cover shrink-0" alt="" referrerPolicy="no-referrer" />
                       ) : (
-                        <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center text-slate-400">
+                        <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center text-slate-400 shrink-0">
                           <BookOpen size={20} />
                         </div>
                       )}
-                      <div>
-                        <p className="font-bold text-lg">{word.word}</p>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-bold text-lg">{word.word}</p>
+                          {word.category_name && <span className="text-[10px] bg-accent/20 text-accent px-2 py-0.5 rounded-full font-medium">{word.category_name}</span>}
+                        </div>
                         <p className="text-slate-400 text-sm">{word.translation}</p>
+                        {word.example_translation && <p className="text-xs text-brand-primary/80 mt-1 truncate">"{word.example_translation}"</p>}
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 shrink-0">
                       <div className="text-right">
                         <span className="block text-[10px] bg-brand-primary/10 text-brand-primary px-2 py-0.5 rounded-full font-bold">LVL {word.level}</span>
-                        <p className="text-[9px] text-slate-300 mt-1">
-                          {new Date(word.next_review) <= new Date() ? 'Пора повторить' : 'Ок'}
-                        </p>
+                        <p className="text-[9px] text-slate-300 mt-1">{new Date(word.next_review) <= new Date() ? 'Повторить' : 'Ок'}</p>
                       </div>
-                      <button onClick={() => deleteWord(word.id)} className="p-2 text-slate-300 hover:text-rose-500">
-                        <Trash2 size={18} />
-                      </button>
+                      <button onClick={() => copyWord(word)} className={`p-2 transition-colors ${copiedId === word.id ? 'text-emerald-500' : 'text-slate-300 hover:text-brand-primary'}`} title={copiedId === word.id ? 'Скопировано' : 'Копировать'}><Copy size={18} /></button>
+                      <button onClick={() => deleteWord(word.id)} className="p-2 text-slate-300 hover:text-rose-500"><Trash2 size={18} /></button>
                     </div>
                   </motion.div>
                 ))}
+              </div>
+              )}
+              {filteredWords.length === 0 && (
+                <p className="text-center text-slate-400 py-8">
+                  {words.length === 0 
+                    ? 'Словарь пуст. Добавьте слова или импортируйте.' 
+                    : (searchQuery || categoryFilter) ? 'Ничего не найдено по фильтрам.' : 'Словарь пуст.'}
+                </p>
+              )}
+            </motion.div>
+          )}
+
+          {view === 'settings' && (
+            <motion.div
+              key="settings"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              <div className="flex items-center gap-4 mb-8">
+                <button onClick={() => setView('dashboard')} className="p-2 rounded-full hover:bg-slate-100">
+                  <X size={20} />
+                </button>
+                <h2 className="font-display font-bold text-2xl text-brand-primary">Настройки</h2>
+              </div>
+
+              <div className="space-y-4">
+                <div className="bg-white rounded-2xl p-5 card-shadow">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center">
+                        {darkMode ? <Moon size={20} className="text-slate-600" /> : <Sun size={20} className="text-amber-500" />}
+                      </div>
+                      <div>
+                        <p className="font-bold text-brand-primary">Тёмная тема</p>
+                        <p className="text-xs text-slate-500">Скоро</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => { setDarkMode(!darkMode); toast('Скоро будет доступно', 'info'); }}
+                      className={`relative w-12 h-7 rounded-full transition-colors ${darkMode ? 'bg-brand-primary' : 'bg-slate-200'}`}
+                    >
+                      <div className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${darkMode ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl p-5 card-shadow">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center">
+                      <Bell size={20} className="text-slate-600" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-brand-primary">Напоминания</p>
+                      <p className="text-xs text-slate-500">Уведомления о повторениях — скоро</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl p-5 card-shadow">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center">
+                      <BookOpen size={20} className="text-slate-600" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-brand-primary">О приложении</p>
+                      <p className="text-xs text-slate-500">МГИМО AI v1.0 — платформа для изучения академической лексики</p>
+                    </div>
+                  </div>
+                </div>
               </div>
             </motion.div>
           )}
