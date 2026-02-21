@@ -58,21 +58,34 @@ NODE_ENV=production npm run dev
 
 ## Telegram Mini App
 
-**Бот:** [@MGIMOOUIZMODE_bot](https://t.me/MGIMOOUIZMODE_bot)
+**Бот:** [@MGIMOOUIZMODE_bot](https://t.me/MGIMOOUIZMODE_bot)  
+**Приложение:** https://mgimo-ochre.vercel.app
 
 ### Настройка бота (команды, меню, описание)
 
 ```bash
-BOT_TOKEN=xxx APP_URL=https://your-app.vercel.app node scripts/setup-telegram-bot.mjs
+BOT_TOKEN=xxx APP_URL=https://mgimo-ochre.vercel.app npm run bot:setup
 ```
 
-Скрипт устанавливает: команды `/start`, `/app`, описание, кнопку меню с Web App URL.
+Скрипт устанавливает: команды `/start`, `/app`, `/tip`, описание, кнопку меню с Web App URL.
+
+### Живой бот (ответы на сообщения)
+
+```bash
+BOT_TOKEN=xxx npm run bot
+```
+
+Бот отвечает на /start приветствием, на /app — кнопкой открытия, на /tip — случайным советом по изучению. Можно запустить на Railway как worker.
+
+### Про форму «Вы студент МГИМО»
+
+Такой формы **нет в коде приложения**. Если вы видели её при создании Mini App в [@BotFather](https://t.me/BotFather) — это вопрос о целевой аудитории. Приложение открыто для всех: укажите в описании «для всех, кто изучает академическую лексику».
 
 ### Ручная настройка через BotFather
 
 1. Создайте бота через [@BotFather](https://t.me/BotFather)
 2. Настройте Web App: `/newapp` или Bot Settings → Menu Button
-3. Укажите URL приложения (например, `https://mgimo.vercel.app`)
+3. Укажите URL приложения: `https://mgimo-ochre.vercel.app`
 4. Приложение автоматически:
    - подключает Telegram Web App SDK
    - разворачивается на весь экран
