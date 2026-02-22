@@ -89,7 +89,20 @@ export default function App() {
   const [importFormat, setImportFormat] = useState<'json' | 'csv' | 'text'>('text');
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [selectedWordDetail, setSelectedWordDetail] = useState<Word | null>(null);
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    try {
+      return localStorage.getItem('mgimo-dark') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [notificationsEnabled, setNotificationsEnabled] = useState(() => {
+    try {
+      return localStorage.getItem('mgimo-notifications') === '1';
+    } catch {
+      return false;
+    }
+  });
   const [wordsLoading, setWordsLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(true);
 
@@ -98,6 +111,29 @@ export default function App() {
     fetchStats();
     fetchCategories();
   }, []);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', darkMode);
+    try {
+      localStorage.setItem('mgimo-dark', darkMode ? '1' : '0');
+    } catch {}
+  }, [darkMode]);
+
+  // Push-уведомление о повторениях (раз в день при due > 0)
+  useEffect(() => {
+    if (!notificationsEnabled || stats.due === 0 || !statsLoading) return;
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    try {
+      const last = localStorage.getItem('mgimo-last-notify');
+      const today = new Date().toDateString();
+      if (last === today) return;
+      new Notification('МГИМО AI — пора повторить', {
+        body: `Сегодня ${stats.due} ${stats.due === 1 ? 'слово' : stats.due < 5 ? 'слова' : 'слов'} ждут повторения`,
+        icon: '/favicon.ico',
+      });
+      localStorage.setItem('mgimo-last-notify', today);
+    } catch {}
+  }, [notificationsEnabled, stats.due, statsLoading]);
 
   const fetchCategories = async () => {
     try {
@@ -465,7 +501,7 @@ export default function App() {
   };
 
   return (
-    <div className="max-w-md mx-auto min-h-screen flex flex-col pb-24 bg-bg-main">
+    <div className="max-w-md mx-auto min-h-screen flex flex-col pb-24 bg-bg-main transition-colors duration-300">
       {/* Header */}
       <header className="p-6 flex justify-between items-center">
         <div className="flex items-center gap-3">
@@ -1307,27 +1343,60 @@ export default function App() {
                       </div>
                       <div>
                         <p className="font-bold text-brand-primary">Тёмная тема</p>
-                        <p className="text-xs text-slate-500">Скоро</p>
+                        <p className="text-xs text-slate-500">{darkMode ? 'Включена' : 'Выключена'}</p>
                       </div>
                     </div>
                     <button
-                      onClick={() => { setDarkMode(!darkMode); toast('Скоро будет доступно', 'info'); }}
+                      onClick={() => setDarkMode(!darkMode)}
                       className={`relative w-12 h-7 rounded-full transition-colors ${darkMode ? 'bg-brand-primary' : 'bg-slate-200'}`}
+                      aria-label={darkMode ? 'Выключить тёмную тему' : 'Включить тёмную тему'}
                     >
-                      <div className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${darkMode ? 'translate-x-6' : 'translate-x-1'}`} />
+                      <div className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${darkMode ? 'translate-x-6' : 'translate-x-1'}`} />
                     </button>
                   </div>
                 </div>
 
                 <div className="bg-white rounded-2xl p-5 card-shadow">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center">
-                      <Bell size={20} className="text-slate-600" />
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center">
+                        <Bell size={20} className="text-slate-600" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-brand-primary">Напоминания</p>
+                        <p className="text-xs text-slate-500">
+                          {notificationsEnabled ? 'Включены' : 'Push-уведомления о повторениях'}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-bold text-brand-primary">Напоминания</p>
-                      <p className="text-xs text-slate-500">Уведомления о повторениях — скоро</p>
-                    </div>
+                    <button
+                      onClick={async () => {
+                        if (!notificationsEnabled) {
+                          if ('Notification' in window && Notification.permission === 'default') {
+                            const perm = await Notification.requestPermission();
+                            if (perm !== 'granted') {
+                              toast('Разрешите уведомления в настройках браузера', 'info');
+                              return;
+                            }
+                          }
+                          setNotificationsEnabled(true);
+                          try {
+                            localStorage.setItem('mgimo-notifications', '1');
+                          } catch {}
+                          toast('Напоминания включены', 'success');
+                        } else {
+                          setNotificationsEnabled(false);
+                          try {
+                            localStorage.setItem('mgimo-notifications', '0');
+                          } catch {}
+                          toast('Напоминания выключены', 'info');
+                        }
+                      }}
+                      className={`relative w-12 h-7 rounded-full transition-colors ${notificationsEnabled ? 'bg-brand-primary' : 'bg-slate-200'}`}
+                      aria-label={notificationsEnabled ? 'Выключить уведомления' : 'Включить уведомления'}
+                    >
+                      <div className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${notificationsEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
                   </div>
                 </div>
 

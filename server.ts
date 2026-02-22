@@ -156,7 +156,8 @@ async function startServer() {
         items = data
           .split(/\r?\n/)
           .map((line) => {
-            const [word, translation] = line.split(/[;\t]/).map((s) => s.trim());
+            // Поддержка: слово — перевод, слово - перевод, слово;перевод, слово\tперевод
+            const [word, translation] = line.split(/\s*[—\-;]\s*|\t/).map((s) => s.trim());
             return { word: word || "", translation: translation || undefined };
           })
           .filter((w) => w.word);
