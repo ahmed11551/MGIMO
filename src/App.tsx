@@ -32,6 +32,7 @@ import { API_BASE } from './config';
 import { getWordDetails, generateWordImage, generateSpeech, generateSmartStory, getChatResponse, generateWordsByTopic, WordInfo } from './services/apiClient';
 import { useToast } from './Toast';
 import { SkeletonList, SkeletonStats } from './Skeleton';
+import { ConfirmModal } from './ConfirmModal';
 import ReactMarkdown from 'react-markdown';
 
 interface Category {
@@ -105,6 +106,7 @@ export default function App() {
   });
   const [wordsLoading, setWordsLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(true);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: number } | null>(null);
 
   useEffect(() => {
     fetchWords();
@@ -152,6 +154,10 @@ export default function App() {
     } catch (e) {
       console.error('fetchWords:', e);
       setWords([]);
+      const isNetworkError = e instanceof TypeError || (e instanceof Error && /fetch|network/i.test(e.message));
+      if (isNetworkError) {
+        toast('Нет подключения. Проверьте интернет и URL backend.', 'error');
+      }
     } finally {
       setWordsLoading(false);
     }
@@ -172,7 +178,10 @@ export default function App() {
   };
 
   const handleAddWord = async () => {
-    if (!newWord) return;
+    if (!newWord.trim()) {
+      toast('Введите слово для генерации', 'info');
+      return;
+    }
     setLoading(true);
     try {
       const details = await getWordDetails(newWord);
@@ -315,14 +324,25 @@ export default function App() {
   };
 
   const deleteWord = async (id: number) => {
-    if (!confirm('Удалить это слово?')) return;
+    setDeleteConfirm({ id });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirm) return;
     try {
-      const res = await fetch(API_BASE + `/api/words/${id}`, { method: 'DELETE' });
+      const res = await fetch(API_BASE + `/api/words/${deleteConfirm.id}`, { method: 'DELETE' });
       if (res.ok) {
         fetchWords();
         fetchStats();
+        toast('Слово удалено', 'success');
+      } else {
+        toast('Не удалось удалить', 'error');
       }
-    } catch {}
+    } catch {
+      toast('Ошибка сети', 'error');
+    } finally {
+      setDeleteConfirm(null);
+    }
   };
 
   const exportWords = async (format: 'json' | 'csv') => {
@@ -1263,7 +1283,7 @@ export default function App() {
                             <td className="p-3"><span className="text-[10px] bg-brand-primary/10 text-brand-primary px-2 py-0.5 rounded-full font-bold">LVL {word.level}</span></td>
                             <td className="p-3 flex gap-1">
                               <button onClick={() => copyWord(word)} className={`p-1.5 rounded-lg transition-colors ${copiedId === word.id ? 'text-emerald-500 bg-emerald-50' : 'text-slate-300 hover:text-brand-primary hover:bg-slate-100'}`} title={copiedId === word.id ? 'Скопировано' : 'Копировать'}><Copy size={16} /></button>
-                              <button onClick={() => deleteWord(word.id)} className="p-1.5 text-slate-300 hover:text-rose-500 rounded-lg hover:bg-rose-50"><Trash2 size={16} /></button>
+                              <button onClick={() => deleteWord(word.id)} className="p-1.5 text-slate-300 hover:text-rose-500 rounded-lg hover:bg-rose-50 dark:hover:!bg-rose-900/20" aria-label={`Удалить ${word.word}`}><Trash2 size={16} /></button>
                             </td>
                           </tr>
                         ))}
@@ -1304,7 +1324,7 @@ export default function App() {
                         <p className="text-[9px] text-slate-300 mt-1">{new Date(word.next_review) <= new Date() ? 'Повторить' : 'Ок'}</p>
                       </div>
                       <button onClick={() => copyWord(word)} className={`p-2 transition-colors ${copiedId === word.id ? 'text-emerald-500' : 'text-slate-300 hover:text-brand-primary'}`} title={copiedId === word.id ? 'Скопировано' : 'Копировать'}><Copy size={18} /></button>
-                      <button onClick={() => deleteWord(word.id)} className="p-2 text-slate-300 hover:text-rose-500"><Trash2 size={18} /></button>
+                      <button onClick={() => deleteWord(word.id)} className="p-2 text-slate-300 hover:text-rose-500" aria-label={`Удалить ${word.word}`}><Trash2 size={18} /></button>
                     </div>
                   </motion.div>
                 ))}
@@ -1418,38 +1438,58 @@ export default function App() {
       </main>
 
       {/* Navigation Bar */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-xl border-t border-slate-100 px-8 py-4 flex justify-between items-center z-50">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-xl border-t border-slate-100 px-8 py-4 flex justify-between items-center z-50" role="navigation" aria-label="Главное меню">
         <button 
           onClick={() => setView('dashboard')}
           className={`p-2 transition-colors ${view === 'dashboard' ? 'text-brand-primary' : 'text-slate-300'}`}
+          aria-label="Главная"
+          aria-current={view === 'dashboard' ? 'page' : undefined}
         >
           <Brain size={28} />
         </button>
         <button 
           onClick={() => setView('learn')}
           className={`p-2 transition-colors ${view === 'learn' ? 'text-brand-primary' : 'text-slate-300'}`}
+          aria-label="Обучение"
+          aria-current={view === 'learn' ? 'page' : undefined}
         >
           <Trophy size={28} />
         </button>
         <button 
           onClick={() => setView('tutor')}
           className={`p-2 transition-colors ${['tutor', 'story', 'chat'].includes(view) ? 'text-brand-primary' : 'text-slate-400'}`}
+          aria-label="Тьютор"
+          aria-current={['tutor', 'story', 'chat'].includes(view) ? 'page' : undefined}
         >
           <Bot size={28} />
         </button>
         <button 
           onClick={() => setView('list')}
           className={`p-2 transition-colors ${view === 'list' ? 'text-brand-primary' : 'text-slate-400'}`}
+          aria-label="Словарь"
+          aria-current={view === 'list' ? 'page' : undefined}
         >
           <BookOpen size={28} />
         </button>
         <button 
           onClick={() => setView('add')}
           className="w-14 h-14 bg-brand-primary text-white rounded-2xl flex items-center justify-center shadow-xl shadow-brand-primary/30 -mt-10 border-4 border-white"
+          aria-label="Добавить слово"
         >
           <Plus size={32} />
         </button>
       </nav>
+
+      <ConfirmModal
+        open={!!deleteConfirm}
+        title="Удалить слово?"
+        message="Слово будет удалено из словаря. Это действие нельзя отменить."
+        confirmLabel="Удалить"
+        cancelLabel="Отмена"
+        danger
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteConfirm(null)}
+      />
 
       <style>{`
         .perspective-1000 { perspective: 1000px; }

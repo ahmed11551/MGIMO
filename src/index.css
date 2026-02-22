@@ -74,10 +74,18 @@ html.dark select {
   border-color: #475569 !important;
   color: #f1f5f9 !important;
 }
-html.dark [class*="bg-emerald-50"],
-html.dark [class*="bg-rose-50"] {
+html.dark .ToastProvider [class*="bg-emerald"] {
+  background-color: rgba(6, 78, 59, 0.5) !important;
+  border-color: #065f46 !important;
+}
+html.dark .ToastProvider [class*="bg-rose"] {
+  background-color: rgba(127, 29, 29, 0.5) !important;
+  border-color: #9f1239 !important;
+}
+/* ConfirmModal dark */
+html.dark [role="dialog"] {
   background-color: #1e293b !important;
-  border-color: #334155 !important;
+  border-color: #475569 !important;
 }
 
 .glass {

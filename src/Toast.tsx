@@ -32,7 +32,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={{ toast }}>
       {children}
-      <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-2 pointer-events-none">
+      <div className="ToastProvider fixed bottom-24 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-2 pointer-events-none">
         <AnimatePresence>
           {toasts.map((t) => (
             <motion.div
@@ -42,10 +42,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               exit={{ opacity: 0, y: -10, scale: 0.95 }}
               className={`flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg border pointer-events-auto ${
                 t.type === 'success'
-                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  ? 'bg-emerald-50 dark:!bg-emerald-900/30 border-emerald-200 dark:!border-emerald-800 text-emerald-800 dark:!text-emerald-200'
                   : t.type === 'error'
-                  ? 'bg-rose-50 border-rose-200 text-rose-800'
-                  : 'bg-white border-slate-200 text-slate-800'
+                  ? 'bg-rose-50 dark:!bg-rose-900/30 border-rose-200 dark:!border-rose-800 text-rose-800 dark:!text-rose-200'
+                  : 'bg-white dark:!bg-slate-800 border-slate-200 dark:!border-slate-600 text-slate-800 dark:!text-slate-200'
               }`}
             >
               {t.type === 'success' && <Check size={20} className="text-emerald-600 shrink-0" />}
