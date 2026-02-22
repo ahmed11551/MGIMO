@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
+const GEMINI_MODEL = "gemini-2.5-flash"; // стабильная модель; gemini-3-flash-preview может быть недоступна
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
 export interface WordInfo {
@@ -13,7 +14,7 @@ export interface WordInfo {
 
 export async function generateWordsByTopic(topic: string, count: number = 5): Promise<WordInfo[]> {
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+    model: GEMINI_MODEL,
     contents: `Generate a list of ${count} advanced English terms (C1-C2 level) related to the topic: "${topic}". 
     For each word provide: English word, Russian translation, IPA transcription, a professional example sentence in English, Russian translation of that example sentence, and a short mnemonic hint.`,
     config: {
@@ -42,7 +43,7 @@ export async function generateWordsByTopic(topic: string, count: number = 5): Pr
 
 export async function getWordDetails(word: string, targetLang: string = "Russian"): Promise<WordInfo> {
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+    model: GEMINI_MODEL,
     contents: `Analyze the word "${word}" for a language learner. Target language: ${targetLang}. Provide: translation, IPA transcription, a simple example sentence in English, Russian translation of that example sentence, and a short mnemonic hint.`,
     config: {
       responseMimeType: "application/json",
@@ -121,7 +122,7 @@ export async function generateSmartStory(words: string[]): Promise<string> {
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: GEMINI_MODEL,
       contents: prompt,
     });
     return response.text || "Не удалось сгенерировать историю.";
@@ -145,7 +146,7 @@ export async function getChatResponse(message: string, history: {role: string, t
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: GEMINI_MODEL,
       contents: contents as any,
       config: {
         systemInstruction: systemInstruction

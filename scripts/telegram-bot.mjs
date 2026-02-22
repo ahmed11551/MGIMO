@@ -1,11 +1,18 @@
 #!/usr/bin/env node
 /**
  * Telegram-бот @MGIMOOUIZMODE_bot — живой и интересный.
- * Отвечает на /start, /app, /tip. Кнопка меню открывает приложение.
+ * Отвечает на /start, /app, /tip, /remind. Расписание напоминаний каждые 6 ч.
  *
  * Запуск: BOT_TOKEN=xxx APP_URL=https://mgimo-ochre.vercel.app node scripts/telegram-bot.mjs
  * Деплой: можно запустить на Railway как отдельный worker.
  */
+
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const REMINDERS_FILE = join(__dirname, '..', 'data', 'reminders.json');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const APP_URL = (process.env.APP_URL || 'https://mgimo-ochre.vercel.app').replace(/\/$/, '');
@@ -16,6 +23,25 @@ if (!BOT_TOKEN) {
 }
 
 const API = `https://api.telegram.org/bot${BOT_TOKEN}`;
+
+function loadReminders() {
+  try {
+    if (existsSync(REMINDERS_FILE)) {
+      return JSON.parse(readFileSync(REMINDERS_FILE, 'utf8'));
+    }
+  } catch {}
+  return { chatIds: [] };
+}
+
+function saveReminders(data) {
+  try {
+    const dir = join(__dirname, '..', 'data');
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    writeFileSync(REMINDERS_FILE, JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.error('saveReminders:', e.message);
+  }
+}
 
 const TIPS = [
   'Повторяй слова в контексте — одно предложение лучше десяти карточек.',
@@ -41,7 +67,8 @@ async function api(method, body = {}) {
   return data;
 }
 
-function sendWelcome(chatId) {
+function sendWelcome(chatId, startPayload = '') {
+  const refNote = startPayload.startsWith('ref_') ? `\n\n👥 Реферальная ссылка: ${startPayload}` : '';
   return api('sendMessage', {
     chat_id: chatId,
     text: `Привет! 👋
@@ -52,10 +79,10 @@ function sendWelcome(chatId) {
 🤖 AI генерирует примеры, картинки, озвучку
 📝 Истории и чат-тьютор для практики
 
-Приложение открыто для всех — не только для студентов МГИМО. Нажми кнопку ниже и начни учиться!`,
+Приложение открыто для всех — не только для студентов МГИМО. Нажми кнопку ниже и начни учиться!${refNote}`,
     reply_markup: {
       inline_keyboard: [[
-        { text: '📖 Открыть приложение', web_app: { url: APP_URL } },
+        { text: '📖 Открыть приложение', web_app: { url: startPayload ? `${APP_URL}?ref=${encodeURIComponent(startPayload)}` : APP_URL } },
       ]],
     },
   });
@@ -86,8 +113,25 @@ async function poll() {
         if (!msg?.text) continue;
         const chatId = msg.chat.id;
         const text = msg.text.trim().toLowerCase();
-        if (text === '/start' || text === '/start start') {
-          await sendWelcome(chatId);
+        const startPayload = msg.text?.startsWith('/start ') ? msg.text.slice(7).trim() : '';
+        if (text === '/start' || text.startsWith('/start ')) {
+          await sendWelcome(chatId, startPayload);
+        } else if (text === '/remind') {
+          const r = loadReminders();
+          const idx = r.chatIds.indexOf(chatId);
+          if (idx >= 0) {
+            r.chatIds.splice(idx, 1);
+            saveReminders(r);
+            await api('sendMessage', { chat_id: chatId, text: '🔕 Напоминания отключены.' });
+          } else {
+            r.chatIds.push(chatId);
+            saveReminders(r);
+            await api('sendMessage', {
+              chat_id: chatId,
+              text: '🔔 Напоминания включены! Буду напоминать каждые 6 часов. Нажми кнопку ниже, чтобы открыть приложение.',
+              reply_markup: { inline_keyboard: [[{ text: '📖 Открыть', web_app: { url: APP_URL } }]] },
+            });
+          }
         } else if (text === '/app') {
           await api('sendMessage', {
             chat_id: chatId,
@@ -103,7 +147,7 @@ async function poll() {
         } else if (text.startsWith('/')) {
           await api('sendMessage', {
             chat_id: chatId,
-            text: 'Используй /start чтобы начать, /app чтобы открыть приложение, /tip для совета по изучению.',
+            text: 'Команды: /start — приветствие, /app — открыть приложение, /tip — совет, /remind — вкл/выкл напоминания.',
           });
         }
       }
@@ -114,4 +158,25 @@ async function poll() {
   }
 }
 
+async function sendScheduledReminders() {
+  const r = loadReminders();
+  if (r.chatIds.length === 0) return;
+  for (const chatId of r.chatIds) {
+    try {
+      await api('sendMessage', {
+        chat_id: chatId,
+        text: '⏰ Пора повторить слова! Даже 5 минут в день дают результат.',
+        reply_markup: { inline_keyboard: [[{ text: '📖 Открыть МГИМО AI', web_app: { url: APP_URL } }]] },
+      });
+    } catch (e) {
+      if (e.message?.includes('blocked') || e.message?.includes('deactivated')) {
+        r.chatIds = r.chatIds.filter((id) => id !== chatId);
+        saveReminders(r);
+      }
+    }
+    await new Promise((x) => setTimeout(x, 500));
+  }
+}
+
+setInterval(sendScheduledReminders, 6 * 60 * 60 * 1000);
 poll();

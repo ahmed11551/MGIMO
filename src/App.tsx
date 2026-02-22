@@ -29,6 +29,7 @@ import {
   Bell
 } from 'lucide-react';
 import { API_BASE } from './config';
+import { getLaunchRef } from './telegram';
 import { getWordDetails, generateWordImage, generateSpeech, generateSmartStory, getChatResponse, generateWordsByTopic, WordInfo } from './services/apiClient';
 import { useToast } from './Toast';
 import { SkeletonList, SkeletonStats } from './Skeleton';
@@ -68,6 +69,7 @@ export default function App() {
   const [isFlipped, setIsFlipped] = useState(false);
   const [quizOptions, setQuizOptions] = useState<string[]>([]);
   const [quizScore, setQuizScore] = useState(0);
+  const [quizMode, setQuizMode] = useState<'word-to-translation' | 'translation-to-word'>('word-to-translation');
   const [isListening, setIsListening] = useState(false);
   const [pronunciationScore, setPronunciationScore] = useState<number | null>(null);
   
@@ -107,11 +109,28 @@ export default function App() {
   const [wordsLoading, setWordsLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(true);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: number } | null>(null);
+  const [referralCode, setReferralCode] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('mgimo-ref');
+    } catch {
+      return null;
+    }
+  });
 
   useEffect(() => {
     fetchWords();
     fetchStats();
     fetchCategories();
+  }, []);
+
+  useEffect(() => {
+    const ref = getLaunchRef();
+    if (ref) {
+      try {
+        localStorage.setItem('mgimo-ref', ref);
+        setReferralCode(ref);
+      } catch {}
+    }
   }, []);
 
   useEffect(() => {
@@ -236,7 +255,7 @@ export default function App() {
       const words = await generateWordsByTopic(topic, 5);
       setGeneratedWords(words);
     } catch (e) {
-      toast('Ошибка при генерации слов', 'error');
+      toast(e instanceof Error ? e.message : 'Ошибка при генерации слов', 'error');
     }
     setLoading(false);
   };
@@ -423,27 +442,35 @@ export default function App() {
     }
     setQuizScore(0);
     setCurrentLearnIndex(0);
-    generateQuizOptions(words[0]);
+    generateQuizOptions(words[0], quizMode);
     setView('quiz');
   };
 
-  const generateQuizOptions = (correctWord: Word) => {
+  const generateQuizOptions = (correctWord: Word, mode: 'word-to-translation' | 'translation-to-word') => {
     const others = words.filter(w => w.id !== correctWord.id).sort(() => 0.5 - Math.random());
-    const wrongTranslations = [...new Set(others.map(w => w.translation).filter(Boolean))].slice(0, 3);
-    const allOptions = [correctWord.translation, ...wrongTranslations];
-    const unique = [...new Set(allOptions)].sort(() => 0.5 - Math.random());
-    setQuizOptions(unique.length >= 4 ? unique.slice(0, 4) : unique);
+    if (mode === 'word-to-translation') {
+      const wrongTranslations = [...new Set(others.map(w => w.translation).filter(Boolean))].slice(0, 3);
+      const allOptions = [correctWord.translation, ...wrongTranslations];
+      const unique = [...new Set(allOptions)].sort(() => 0.5 - Math.random());
+      setQuizOptions(unique.length >= 4 ? unique.slice(0, 4) : unique);
+    } else {
+      const wrongWords = [...new Set(others.map(w => w.word).filter(Boolean))].slice(0, 3);
+      const allOptions = [correctWord.word, ...wrongWords];
+      const unique = [...new Set(allOptions)].sort(() => 0.5 - Math.random());
+      setQuizOptions(unique.length >= 4 ? unique.slice(0, 4) : unique);
+    }
   };
 
   const quizLength = Math.min(10, words.length);
   const handleQuizAnswer = (answer: string) => {
-    const isCorrect = answer === words[currentLearnIndex].translation;
+    const current = words[currentLearnIndex];
+    const isCorrect = quizMode === 'word-to-translation' ? answer === current.translation : answer === current.word;
     if (isCorrect) setQuizScore(prev => prev + 1);
     
     if (currentLearnIndex < quizLength - 1) {
       const nextIndex = currentLearnIndex + 1;
       setCurrentLearnIndex(nextIndex);
-      generateQuizOptions(words[nextIndex]);
+      generateQuizOptions(words[nextIndex], quizMode);
     } else {
       toast(`Квиз завершен! Ваш счет: ${isCorrect ? quizScore + 1 : quizScore}`, 'success');
       setView('dashboard');
@@ -736,7 +763,7 @@ export default function App() {
                 <div className="pt-4">
                   <h3 className="font-display font-bold text-lg mb-4 text-brand-primary">Модули МГИМО (AI Генерация)</h3>
                   <div className="grid grid-cols-2 gap-3">
-                    {['Международное право', 'Дипломатия', 'Макроэкономика', 'Политология'].map((topic) => (
+                    {['Международное право', 'Дипломатия', 'Макроэкономика', 'Политология', 'Общая лексика', 'Бизнес', 'Медиа'].map((topic) => (
                       <button 
                         key={topic}
                         onClick={() => handleGenerateTopic(topic)}
@@ -961,18 +988,38 @@ export default function App() {
               animate={{ opacity: 1, scale: 1 }}
               className="h-full flex flex-col"
             >
-              <div className="flex justify-between items-center mb-8">
+              <div className="flex justify-between items-center mb-4">
                 <button onClick={() => setView('dashboard')} className="p-2 rounded-full hover:bg-slate-200">
                   <X size={20} />
                 </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setQuizMode('word-to-translation'); generateQuizOptions(words[currentLearnIndex], 'word-to-translation'); }}
+                    className={`px-3 py-1 rounded-lg text-xs font-medium ${quizMode === 'word-to-translation' ? 'bg-brand-primary text-white' : 'bg-slate-100 text-slate-500'}`}
+                  >
+                    Слово → перевод
+                  </button>
+                  <button
+                    onClick={() => { setQuizMode('translation-to-word'); generateQuizOptions(words[currentLearnIndex], 'translation-to-word'); }}
+                    className={`px-3 py-1 rounded-lg text-xs font-medium ${quizMode === 'translation-to-word' ? 'bg-brand-primary text-white' : 'bg-slate-100 text-slate-500'}`}
+                  >
+                    Перевод → слово
+                  </button>
+                </div>
                 <div className="text-brand-primary font-bold">Счет: {quizScore}</div>
                 <span className="text-xs font-bold text-slate-400">{currentLearnIndex + 1}/{quizLength}</span>
               </div>
 
               <div className="flex-1 flex flex-col items-center justify-center">
                 <div className="w-full bg-white rounded-[40px] card-shadow p-8 flex flex-col items-center justify-center mb-8">
-                  <h2 className="text-4xl font-display font-black text-center text-brand-primary mb-2">{words[currentLearnIndex].word}</h2>
-                  <p className="text-slate-400 font-mono">{words[currentLearnIndex].transcription}</p>
+                  {quizMode === 'word-to-translation' ? (
+                    <>
+                      <h2 className="text-4xl font-display font-black text-center text-brand-primary mb-2">{words[currentLearnIndex].word}</h2>
+                      <p className="text-slate-400 font-mono">{words[currentLearnIndex].transcription}</p>
+                    </>
+                  ) : (
+                    <h2 className="text-4xl font-display font-black text-center text-brand-primary mb-2">{words[currentLearnIndex].translation}</h2>
+                  )}
                 </div>
 
                 <div className="w-full space-y-3">
@@ -1419,6 +1466,20 @@ export default function App() {
                     </button>
                   </div>
                 </div>
+
+                {referralCode && (
+                  <div className="bg-white rounded-2xl p-5 card-shadow">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center">
+                        <Bot size={20} className="text-emerald-600" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-brand-primary">Реферальная ссылка</p>
+                        <p className="text-xs text-slate-500">Вы перешли по: {referralCode}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="bg-white rounded-2xl p-5 card-shadow">
                   <div className="flex items-center gap-3">

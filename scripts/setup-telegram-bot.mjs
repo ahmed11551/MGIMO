@@ -38,7 +38,8 @@ async function main() {
     commands: [
       { command: 'start', description: '🚀 Открыть приложение' },
       { command: 'app', description: '📚 Словарь и обучение' },
-      { command: 'tip', description: '💡 Случайный совет по изучению' },
+      { command: 'tip', description: '💡 Случайный совет' },
+      { command: 'remind', description: '🔔 Вкл/выкл напоминания' },
     ],
     scope: { type: 'default' },
   });

@@ -310,14 +310,18 @@ async function startServer() {
 
   app.post("/api/ai/words-by-topic", async (req, res) => {
     try {
+      if (!process.env.GEMINI_API_KEY) {
+        return res.status(500).json({ error: "GEMINI_API_KEY не задан. Добавьте в .env" });
+      }
       const { generateWordsByTopic } = await import("./src/services/geminiService");
       const { topic, count } = req.body;
       if (!topic) return res.status(400).json({ error: "topic required" });
       const words = await generateWordsByTopic(topic, count || 5);
       res.json({ words });
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
       console.error("words-by-topic error:", e);
-      res.status(500).json({ error: "AI service error" });
+      res.status(500).json({ error: msg.includes("API key") ? "Неверный GEMINI_API_KEY" : "AI service error" });
     }
   });
 

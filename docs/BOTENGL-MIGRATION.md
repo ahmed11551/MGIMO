@@ -55,12 +55,14 @@ COPY (
 
 | Функция botengl | В МГИМО AI |
 |-----------------|------------|
-| Квиз (word, translation, options) | ✅ Есть Quiz Mode |
+| Квиз (word, translation, options) | ✅ Quiz Mode + 2 режима (слово→перевод, перевод→слово) |
 | Аудио (gTTS) | ✅ Gemini TTS |
 | Темы/теория | ✅ Smart Story, AI Тьютор |
-| Уровни/категории | Можно добавить теги |
+| Уровни/категории | ✅ 7 категорий + темы для AI |
 | Подписка/платежи | — |
 | LearnWord (прогресс) | ✅ SRS (level, next_review) |
+| WordDeliveryService (напоминания) | ✅ /remind в боте, каждые 6 ч |
+| Рефералы | ✅ t.me/bot?start=ref_XXX |
 
 ## Формат JSON для импорта
 
