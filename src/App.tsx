@@ -26,7 +26,8 @@ import {
   List,
   Moon,
   Sun,
-  Bell
+  Bell,
+  Target
 } from 'lucide-react';
 import { API_BASE } from './config';
 import { getLaunchRef } from './telegram';
@@ -34,6 +35,7 @@ import { getWordDetails, generateWordImage, generateSpeech, generateSmartStory, 
 import { useToast } from './Toast';
 import { SkeletonList, SkeletonStats } from './Skeleton';
 import { ConfirmModal } from './ConfirmModal';
+import { EmptyState } from './EmptyState';
 import ReactMarkdown from 'react-markdown';
 
 interface Category {
@@ -61,7 +63,18 @@ export default function App() {
   const { toast } = useToast();
   const [words, setWords] = useState<Word[]>([]);
   const [loading, setLoading] = useState(false);
-  const [stats, setStats] = useState({ total: 0, due: 0, streak: 0 });
+  const [stats, setStats] = useState({ total: 0, due: 0, streak: 0, todayReviewed: 0 });
+  const [dailyGoal, setDailyGoal] = useState(() => {
+    try {
+      const n = parseInt(localStorage.getItem('mgimo-daily-goal') ?? '5', 10);
+      return isNaN(n) || n < 1 ? 5 : Math.min(n, 50);
+    } catch { return 5; }
+  });
+  const [goalReachedShown, setGoalReachedShown] = useState(() => {
+    try {
+      return localStorage.getItem('mgimo-goal-reached') === new Date().toDateString();
+    } catch { return false; }
+    });
   const [newWord, setNewWord] = useState('');
   const [aiResult, setAiResult] = useState<WordInfo | null>(null);
   const [aiImage, setAiImage] = useState<string | null>(null);
@@ -69,7 +82,8 @@ export default function App() {
   const [isFlipped, setIsFlipped] = useState(false);
   const [quizOptions, setQuizOptions] = useState<string[]>([]);
   const [quizScore, setQuizScore] = useState(0);
-  const [quizMode, setQuizMode] = useState<'word-to-translation' | 'translation-to-word'>('word-to-translation');
+  const [quizMode, setQuizMode] = useState<'word-to-translation' | 'translation-to-word' | 'cloze'>('word-to-translation');
+  const [quizWordList, setQuizWordList] = useState<Word[]>([]);
   const [isListening, setIsListening] = useState(false);
   const [pronunciationScore, setPronunciationScore] = useState<number | null>(null);
   
@@ -156,6 +170,19 @@ export default function App() {
     } catch {}
   }, [notificationsEnabled, stats.due, statsLoading]);
 
+  // Daily goal reached toast (once per day)
+  useEffect(() => {
+    if (statsLoading || goalReachedShown) return;
+    const today = new Date().toDateString();
+    if (stats.todayReviewed >= dailyGoal && dailyGoal > 0) {
+      toast('Цель дня достигнута! 🎉', 'success');
+      setGoalReachedShown(true);
+      try {
+        localStorage.setItem('mgimo-goal-reached', today);
+      } catch {}
+    }
+  }, [stats.todayReviewed, statsLoading, dailyGoal, goalReachedShown, toast]);
+
   const fetchCategories = async () => {
     try {
       const res = await fetch(API_BASE + '/api/categories');
@@ -209,7 +236,7 @@ export default function App() {
       setAiImage(image);
     } catch (e) {
       console.error(e);
-      toast('Ошибка AI. Проверьте GEMINI_API_KEY в .env', 'error');
+      toast(e instanceof Error ? e.message : 'Ошибка AI. Проверьте GEMINI_API_KEY в .env', 'error');
     } finally {
       setLoading(false);
     }
@@ -297,6 +324,7 @@ export default function App() {
     } catch {
       return;
     }
+    fetchStats();
     if (currentLearnIndex < dueWords.length - 1) {
       setCurrentLearnIndex(prev => prev + 1);
       setIsFlipped(false);
@@ -421,6 +449,10 @@ export default function App() {
   };
 
   const dueWords = words.filter(w => new Date(w.next_review) <= new Date());
+
+  // Слово дня: приоритет — первое на повторение, иначе одно и то же слово по дню (seed от даты)
+  const daySeed = new Date().toDateString().split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+  const wordOfTheDay = words.length === 0 ? null : (dueWords.length > 0 ? dueWords[0] : words[Math.abs(daySeed) % words.length]);
   
   // Filtered and sorted list
   const filteredWords = words
@@ -435,22 +467,45 @@ export default function App() {
       return new Date(a.next_review).getTime() - new Date(b.next_review).getTime();
     });
 
-  const startQuiz = () => {
-    if (words.length < 4) {
-      toast('Для квиза нужно минимум 4 слова в словаре.', 'info');
-      return;
+  const startQuiz = (mode?: 'word-to-translation' | 'translation-to-word' | 'cloze') => {
+    const m = mode ?? quizMode;
+    if (m === 'cloze') {
+      const withExample = words.filter(w => w.example?.trim());
+      if (withExample.length < 4) {
+        toast('Для режима «Заполни пропуск» нужно минимум 4 слова с примером.', 'info');
+        return;
+      }
+      const shuffled = [...withExample].sort(() => 0.5 - Math.random()).slice(0, Math.min(10, withExample.length));
+      setQuizMode('cloze');
+      setQuizWordList(shuffled);
+      setQuizScore(0);
+      setCurrentLearnIndex(0);
+      generateQuizOptions(shuffled[0], 'cloze', shuffled);
+    } else {
+      if (words.length < 4) {
+        toast('Для квиза нужно минимум 4 слова в словаре.', 'info');
+        return;
+      }
+      setQuizMode(m);
+      setQuizWordList(words);
+      setQuizScore(0);
+      setCurrentLearnIndex(0);
+      generateQuizOptions(words[0], m, words);
     }
-    setQuizScore(0);
-    setCurrentLearnIndex(0);
-    generateQuizOptions(words[0], quizMode);
     setView('quiz');
   };
 
-  const generateQuizOptions = (correctWord: Word, mode: 'word-to-translation' | 'translation-to-word') => {
-    const others = words.filter(w => w.id !== correctWord.id).sort(() => 0.5 - Math.random());
+  const generateQuizOptions = (correctWord: Word, mode: 'word-to-translation' | 'translation-to-word' | 'cloze', pool?: Word[]) => {
+    const list = pool ?? (quizWordList.length ? quizWordList : words);
+    const others = list.filter(w => w.id !== correctWord.id).sort(() => 0.5 - Math.random());
     if (mode === 'word-to-translation') {
       const wrongTranslations = [...new Set(others.map(w => w.translation).filter(Boolean))].slice(0, 3);
       const allOptions = [correctWord.translation, ...wrongTranslations];
+      const unique = [...new Set(allOptions)].sort(() => 0.5 - Math.random());
+      setQuizOptions(unique.length >= 4 ? unique.slice(0, 4) : unique);
+    } else if (mode === 'cloze') {
+      const wrongWords = [...new Set(others.map(w => w.word).filter(Boolean))].slice(0, 3);
+      const allOptions = [correctWord.word, ...wrongWords];
       const unique = [...new Set(allOptions)].sort(() => 0.5 - Math.random());
       setQuizOptions(unique.length >= 4 ? unique.slice(0, 4) : unique);
     } else {
@@ -461,18 +516,35 @@ export default function App() {
     }
   };
 
-  const quizLength = Math.min(10, words.length);
-  const handleQuizAnswer = (answer: string) => {
-    const current = words[currentLearnIndex];
+  const quizLength = Math.min(10, quizWordList.length || words.length);
+  const currentQuizWord = (quizWordList.length ? quizWordList[currentLearnIndex] : words[currentLearnIndex]) as Word | undefined;
+
+  const handleQuizAnswer = async (answer: string) => {
+    const current = currentQuizWord;
+    if (!current) return;
     const isCorrect = quizMode === 'word-to-translation' ? answer === current.translation : answer === current.word;
-    if (isCorrect) setQuizScore(prev => prev + 1);
+    if (isCorrect) {
+      setQuizScore(prev => prev + 1);
+      if (quizMode === 'cloze') {
+        try {
+          await fetch(API_BASE + `/api/words/${current.id}/review`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ quality: 2 })
+          });
+          fetchStats();
+        } catch {}
+      }
+    }
     
     if (currentLearnIndex < quizLength - 1) {
       const nextIndex = currentLearnIndex + 1;
       setCurrentLearnIndex(nextIndex);
-      generateQuizOptions(words[nextIndex], quizMode);
+      const list = quizWordList.length ? quizWordList : words;
+      const next = list[nextIndex];
+      if (next) generateQuizOptions(next, quizMode, list);
     } else {
-      toast(`Квиз завершен! Ваш счет: ${isCorrect ? quizScore + 1 : quizScore}`, 'success');
+      toast(`Квиз завершен! Ваш счёт: ${isCorrect ? quizScore + 1 : quizScore}`, 'success');
       setView('dashboard');
     }
   };
@@ -552,11 +624,11 @@ export default function App() {
       {/* Header */}
       <header className="p-6 flex justify-between items-center">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 bg-brand-primary rounded-2xl flex items-center justify-center text-accent shadow-lg shadow-brand-primary/20 border border-accent/20">
+          <div className="w-12 h-12 bg-gradient-to-br from-brand-primary to-brand-secondary rounded-2xl flex items-center justify-center text-accent shadow-lg shadow-brand-primary/25 border border-accent/20">
             <Brain size={26} />
           </div>
           <div>
-            <h1 className="font-display font-extrabold text-2xl tracking-tight text-brand-primary">МГИМО</h1>
+            <h1 className="font-display font-extrabold text-2xl tracking-tight bg-gradient-to-r from-brand-primary to-brand-secondary bg-clip-text text-transparent">МГИМО</h1>
             <p className="text-[10px] font-bold tracking-widest text-accent uppercase">Language Platform</p>
           </div>
         </div>
@@ -598,6 +670,49 @@ export default function App() {
                   </>
                 )}
               </div>
+
+              {/* Daily Goal */}
+              {!statsLoading && dailyGoal > 0 && (
+                <div className="bg-white dark:!bg-slate-800 rounded-2xl p-4 card-shadow">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-sm font-semibold text-brand-primary">Цель дня</span>
+                    <span className="text-sm text-slate-500">
+                      {Math.min(stats.todayReviewed ?? 0, dailyGoal)} / {dailyGoal} слов
+                    </span>
+                  </div>
+                  <div className="h-2.5 bg-slate-100 dark:!bg-slate-700 rounded-full overflow-hidden">
+                    <motion.div
+                      className="h-full bg-gradient-to-r from-brand-primary to-accent rounded-full"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Math.min(100, ((stats.todayReviewed ?? 0) / dailyGoal) * 100)}%` }}
+                      transition={{ duration: 0.5 }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Слово дня */}
+              {wordOfTheDay && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-gradient-to-br from-brand-primary/10 to-accent/10 dark:from-brand-primary/20 dark:to-accent/20 rounded-2xl p-4 border border-brand-primary/20"
+                >
+                  <p className="text-xs font-bold text-brand-primary uppercase tracking-wider mb-2">📖 Слово дня</p>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-display font-bold text-lg text-brand-primary">{wordOfTheDay.word}</p>
+                      <p className="text-slate-500 dark:text-slate-400 text-sm">{wordOfTheDay.translation}</p>
+                    </div>
+                    <button
+                      onClick={() => { setView('learn'); }}
+                      className="shrink-0 px-4 py-2 bg-brand-primary text-white rounded-xl text-sm font-semibold hover:bg-brand-secondary active:scale-95 transition-all"
+                    >
+                      Повторить
+                    </button>
+                  </div>
+                </motion.div>
+              )}
 
               {/* Action Cards */}
               <div className="space-y-4">
@@ -660,12 +775,25 @@ export default function App() {
                 <div className="space-y-3">
                   {wordsLoading ? (
                     <SkeletonList count={3} />
+                  ) : words.length === 0 ? (
+                    <div className="py-8">
+                      <EmptyState
+                        icon={BookOpen}
+                        title="Пока нет слов"
+                        description="Добавьте первое слово или сгенерируйте по теме — дипломатия, право, экономика."
+                        actionLabel="Добавить слово"
+                        onAction={() => setView('add')}
+                      />
+                    </div>
                   ) : (
-                  words.slice(0, 3).map(word => (
-                    <button
+                  words.slice(0, 3).map((word, index) => (
+                    <motion.button
                       key={word.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.05 }}
                       onClick={() => setSelectedWordDetail(word)}
-                      className="w-full bg-white p-4 rounded-2xl flex items-center justify-between card-shadow text-left hover:shadow-lg hover:border-brand-primary/20 border border-transparent transition-all"
+                      className="w-full bg-white dark:!bg-slate-800 p-4 rounded-2xl flex items-center justify-between card-shadow text-left hover:shadow-lg hover:border-brand-primary/20 border border-transparent transition-all duration-200 active:scale-[0.99]"
                     >
                       <div className="flex items-center gap-3">
                         {word.image_url ? (
@@ -684,7 +812,7 @@ export default function App() {
                         {word.category_name && <span className="text-[10px] bg-accent/20 text-accent px-2 py-0.5 rounded-full font-medium">{word.category_name}</span>}
                         <span className="text-[10px] bg-slate-100 px-2 py-1 rounded-full text-slate-500 font-bold">LVL {word.level}</span>
                       </div>
-                    </button>
+                    </motion.button>
                   ))
                   )}
                 </div>
@@ -872,15 +1000,14 @@ export default function App() {
               className="h-full flex flex-col"
             >
               {dueWords.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
-                  <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mb-4">
-                    <Check size={40} className="text-emerald-600" />
-                  </div>
-                  <h3 className="font-bold text-xl text-brand-primary mb-2">Всё повторено!</h3>
-                  <p className="text-slate-500 text-sm mb-6">Нет слов для повторения на сегодня. Загляните завтра или добавьте новые термины.</p>
-                  <button onClick={() => setView('dashboard')} className="px-6 py-3 bg-brand-primary text-white rounded-xl font-semibold">
-                    На главную
-                  </button>
+                <div className="flex-1 flex flex-col items-center justify-center">
+                  <EmptyState
+                    icon={Check}
+                    title="Всё повторено!"
+                    description="Нет слов для повторения на сегодня. Загляните завтра или добавьте новые термины."
+                    actionLabel="На главную"
+                    onAction={() => setView('dashboard')}
+                  />
                 </div>
               ) : (
               <>
@@ -981,44 +1108,57 @@ export default function App() {
             </motion.div>
           )}
 
-          {view === 'quiz' && words.length >= 4 && (
+          {view === 'quiz' && (words.length >= 4 || (quizMode === 'cloze' && quizWordList.length >= 4)) && currentQuizWord && (
             <motion.div 
               key="quiz"
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               className="h-full flex flex-col"
             >
-              <div className="flex justify-between items-center mb-4">
+              <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
                 <button onClick={() => setView('dashboard')} className="p-2 rounded-full hover:bg-slate-200">
                   <X size={20} />
                 </button>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   <button
-                    onClick={() => { setQuizMode('word-to-translation'); generateQuizOptions(words[currentLearnIndex], 'word-to-translation'); }}
+                    onClick={() => startQuiz('word-to-translation')}
                     className={`px-3 py-1 rounded-lg text-xs font-medium ${quizMode === 'word-to-translation' ? 'bg-brand-primary text-white' : 'bg-slate-100 text-slate-500'}`}
                   >
                     Слово → перевод
                   </button>
                   <button
-                    onClick={() => { setQuizMode('translation-to-word'); generateQuizOptions(words[currentLearnIndex], 'translation-to-word'); }}
+                    onClick={() => startQuiz('translation-to-word')}
                     className={`px-3 py-1 rounded-lg text-xs font-medium ${quizMode === 'translation-to-word' ? 'bg-brand-primary text-white' : 'bg-slate-100 text-slate-500'}`}
                   >
                     Перевод → слово
                   </button>
+                  <button
+                    onClick={() => startQuiz('cloze')}
+                    className={`px-3 py-1 rounded-lg text-xs font-medium ${quizMode === 'cloze' ? 'bg-brand-primary text-white' : 'bg-slate-100 text-slate-500'}`}
+                  >
+                    Заполни пропуск
+                  </button>
                 </div>
-                <div className="text-brand-primary font-bold">Счет: {quizScore}</div>
+                <div className="text-brand-primary font-bold">Счёт: {quizScore}</div>
                 <span className="text-xs font-bold text-slate-400">{currentLearnIndex + 1}/{quizLength}</span>
               </div>
 
               <div className="flex-1 flex flex-col items-center justify-center">
-                <div className="w-full bg-white rounded-[40px] card-shadow p-8 flex flex-col items-center justify-center mb-8">
-                  {quizMode === 'word-to-translation' ? (
+                <div className="w-full bg-white dark:!bg-slate-800 rounded-[40px] card-shadow p-8 flex flex-col items-center justify-center mb-8">
+                  {quizMode === 'cloze' ? (
+                    <p className="text-lg md:text-xl text-center text-slate-700 dark:text-slate-200 leading-relaxed">
+                      {currentQuizWord.example?.replace(
+                        new RegExp(currentQuizWord.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'),
+                        '_____'
+                      ) ?? '_____'}
+                    </p>
+                  ) : quizMode === 'word-to-translation' ? (
                     <>
-                      <h2 className="text-4xl font-display font-black text-center text-brand-primary mb-2">{words[currentLearnIndex].word}</h2>
-                      <p className="text-slate-400 font-mono">{words[currentLearnIndex].transcription}</p>
+                      <h2 className="text-4xl font-display font-black text-center text-brand-primary mb-2">{currentQuizWord.word}</h2>
+                      <p className="text-slate-400 font-mono">{currentQuizWord.transcription}</p>
                     </>
                   ) : (
-                    <h2 className="text-4xl font-display font-black text-center text-brand-primary mb-2">{words[currentLearnIndex].translation}</h2>
+                    <h2 className="text-4xl font-display font-black text-center text-brand-primary mb-2">{currentQuizWord.translation}</h2>
                   )}
                 </div>
 
@@ -1027,7 +1167,7 @@ export default function App() {
                     <button 
                       key={idx}
                       onClick={() => handleQuizAnswer(opt)}
-                      className="w-full p-5 bg-white rounded-2xl card-shadow text-left font-semibold text-slate-700 hover:bg-brand-primary hover:text-white transition-colors"
+                      className="w-full p-5 bg-white dark:!bg-slate-800 rounded-2xl card-shadow text-left font-semibold text-slate-700 dark:text-slate-200 hover:bg-brand-primary hover:text-white transition-colors"
                     >
                       {opt}
                     </button>
@@ -1051,7 +1191,7 @@ export default function App() {
                 <h2 className="font-display font-bold text-2xl text-brand-primary">AI Тьютор</h2>
               </div>
 
-              <div className="bg-gradient-to-br from-brand-primary to-brand-secondary p-6 rounded-[32px] text-white shadow-xl shadow-brand-primary/30 relative overflow-hidden">
+              <div className="bg-gradient-to-br from-brand-primary via-brand-secondary to-brand-primary/90 p-6 rounded-[32px] text-white shadow-xl shadow-brand-primary/30 relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10"></div>
                 <Bot size={48} className="text-accent mb-4" />
                 <h3 className="text-2xl font-bold mb-2">Практика с ИИ</h3>
@@ -1378,11 +1518,21 @@ export default function App() {
               </div>
               )}
               {filteredWords.length === 0 && (
-                <p className="text-center text-slate-400 py-8">
-                  {words.length === 0 
-                    ? 'Словарь пуст. Добавьте слова или импортируйте.' 
-                    : (searchQuery || categoryFilter) ? 'Ничего не найдено по фильтрам.' : 'Словарь пуст.'}
-                </p>
+                <EmptyState
+                  icon={BookOpen}
+                  title={words.length === 0 ? 'Словарь пуст' : 'Ничего не найдено'}
+                  description={
+                    words.length === 0
+                      ? 'Добавьте первое слово или импортируйте список из CSV, JSON или botengl.'
+                      : 'Попробуйте изменить поиск или фильтр по категории.'
+                  }
+                  actionLabel={words.length === 0 ? 'Добавить слово' : 'Сбросить фильтры'}
+                  onAction={() => {
+                    if (words.length === 0) return setView('add');
+                    setSearchQuery('');
+                    setCategoryFilter('');
+                  }}
+                />
               )}
             </motion.div>
           )}
@@ -1423,10 +1573,38 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="bg-white rounded-2xl p-5 card-shadow">
+                <div className="bg-white dark:!bg-slate-800 rounded-2xl p-5 card-shadow">
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-slate-100 dark:!bg-slate-700 rounded-xl flex items-center justify-center">
+                        <Target size={20} className="text-brand-primary" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-brand-primary">Цель дня</p>
+                        <p className="text-xs text-slate-500">Повторить слов в день: {dailyGoal}</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      {[5, 10, 15, 20].map((n) => (
+                        <button
+                          key={n}
+                          onClick={() => {
+                            setDailyGoal(n);
+                            try { localStorage.setItem('mgimo-daily-goal', String(n)); } catch {}
+                          }}
+                          className={`w-10 h-10 rounded-xl font-bold text-sm transition-colors ${dailyGoal === n ? 'bg-brand-primary text-white' : 'bg-slate-100 dark:!bg-slate-700 text-slate-600'}`}
+                        >
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white dark:!bg-slate-800 rounded-2xl p-5 card-shadow">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center">
+                      <div className="w-10 h-10 bg-slate-100 dark:!bg-slate-700 rounded-xl flex items-center justify-center">
                         <Bell size={20} className="text-slate-600" />
                       </div>
                       <div>
@@ -1534,7 +1712,7 @@ export default function App() {
         </button>
         <button 
           onClick={() => setView('add')}
-          className="w-14 h-14 bg-brand-primary text-white rounded-2xl flex items-center justify-center shadow-xl shadow-brand-primary/30 -mt-10 border-4 border-white"
+          className="w-14 h-14 bg-gradient-to-br from-brand-primary to-brand-secondary text-white rounded-2xl flex items-center justify-center shadow-xl shadow-brand-primary/30 -mt-10 border-4 border-white dark:border-slate-900 hover:scale-105 active:scale-95 transition-transform duration-200"
           aria-label="Добавить слово"
         >
           <Plus size={32} />

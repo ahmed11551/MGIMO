@@ -38,6 +38,9 @@ async function main() {
     commands: [
       { command: 'start', description: '🚀 Открыть приложение' },
       { command: 'app', description: '📚 Словарь и обучение' },
+      { command: 'word', description: '📖 Случайное слово' },
+      { command: 'daily', description: '📖 Слово дня' },
+      { command: 'words', description: '📖 Несколько слов (1–10)' },
       { command: 'tip', description: '💡 Случайный совет' },
       { command: 'remind', description: '🔔 Вкл/выкл напоминания' },
     ],

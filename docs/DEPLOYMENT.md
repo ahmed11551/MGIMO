@@ -47,7 +47,14 @@ SQLite **не поддерживается** на Vercel (read-only FS в server
 npm run dev   # Express + Vite
 ```
 
-## 4. Альтернативы
+## 4. Ошибка 405 (Method Not Allowed)
+
+Если в консоли браузера видите `POST .../api/ai/words-by-topic 405`:
+
+- **Причина:** Vercel раздаёт только статику. API-маршрутов на Vercel нет.
+- **Решение:** Разверните бэкенд на Railway (шаг 1), затем задайте `VITE_API_URL` на Vercel (шаг 2) и пересоберите проект.
+
+## 5. Альтернативы
 
 - **Render** — вместо Railway, бесплатный tier
 - **Turso** — serverless SQLite, если нужен весь стек на Vercel (потребует миграции БД)

@@ -67,15 +67,24 @@ NODE_ENV=production npm run dev
 BOT_TOKEN=xxx APP_URL=https://mgimo-ochre.vercel.app npm run bot:setup
 ```
 
-Скрипт устанавливает: команды `/start`, `/app`, `/tip`, описание, кнопку меню с Web App URL.
+Скрипт устанавливает: команды `/start`, `/app`, `/word`, `/words`, `/tip`, `/remind`, описание, кнопку меню с Web App URL.
 
 ### Живой бот (ответы на сообщения)
 
 ```bash
-BOT_TOKEN=xxx npm run bot
+BOT_TOKEN=xxx API_URL=https://your-backend.up.railway.app npm run bot
 ```
 
-Бот отвечает на /start приветствием, на /app — кнопкой открытия, на /tip — случайным советом по изучению. Можно запустить на Railway как worker.
+Бот отвечает на:
+- `/start` — приветствие
+- `/app` — кнопка открытия приложения
+- `/word` — случайное слово из словаря
+- `/words` или `/words 5` — 3 или N слов (1–10)
+- `/words дипломатия` — слова по теме (право, дипломатия, макроэкономика и др.)
+- `/tip` — совет по изучению
+- `/remind` — вкл/выкл напоминания
+
+**Важно:** для `/word` и `/words` нужен запущенный бэкенд. Задайте `API_URL` в env бота.
 
 ### Про форму «Вы студент МГИМО»
 

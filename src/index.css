@@ -12,6 +12,11 @@
   --color-accent: #CBA052; /* Premium Gold */
   --color-accent-light: #E8D5A5;
   --color-bg-main: #F4F5F7;
+  
+  /* Semantic */
+  --color-success: #059669;
+  --color-warning: #d97706;
+  --color-info: #0284c7;
 }
 
 @layer base {
@@ -94,6 +99,22 @@ html.dark [role="dialog"] {
 
 .card-shadow {
   box-shadow: 0 4px 24px -4px rgba(0, 51, 102, 0.08), 0 8px 16px -6px rgba(0, 51, 102, 0.04);
+}
+
+.card-shadow-hover {
+  box-shadow: 0 8px 32px -8px rgba(0, 51, 102, 0.12), 0 12px 24px -8px rgba(0, 51, 102, 0.06);
+}
+
+/* Shimmer for skeleton */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(90deg, rgba(0,51,102,0.06) 25%, rgba(0,51,102,0.12) 50%, rgba(0,51,102,0.06) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
 }
 
 /* Focus states for accessibility */

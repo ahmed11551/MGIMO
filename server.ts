@@ -4,6 +4,7 @@ import { createServer as createViteServer } from "vite";
 import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
+import { existsSync } from "fs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const db = new Database("lingoflow.db");
@@ -116,6 +117,23 @@ async function startServer() {
   app.delete("/api/words/:id", (req, res) => {
     db.prepare("DELETE FROM words WHERE id = ?").run(req.params.id);
     res.sendStatus(200);
+  });
+
+  // Random words for Telegram bot
+  app.get("/api/words/random", (req, res) => {
+    const count = Math.min(10, Math.max(1, parseInt(String(req.query.count || 3), 10) || 3));
+    const categoryId = req.query.category_id as string | undefined;
+    let rows: any[];
+    if (categoryId) {
+      rows = db.prepare(
+        "SELECT w.id, w.word, w.translation, w.transcription, w.example, w.example_translation, c.name as category_name FROM words w LEFT JOIN categories c ON w.category_id = c.id WHERE w.category_id = ? ORDER BY RANDOM() LIMIT ?"
+      ).all(categoryId, count);
+    } else {
+      rows = db.prepare(
+        "SELECT w.id, w.word, w.translation, w.transcription, w.example, w.example_translation, c.name as category_name FROM words w LEFT JOIN categories c ON w.category_id = c.id ORDER BY RANDOM() LIMIT ?"
+      ).all(count);
+    }
+    res.json({ words: rows });
   });
 
   // Bulk import (CSV, JSON, MGIMO bot format)
@@ -328,7 +346,10 @@ async function startServer() {
   app.get("/api/stats", (req, res) => {
     const total = db.prepare("SELECT COUNT(*) as count FROM words").get() as any;
     const due = db.prepare("SELECT COUNT(*) as count FROM words WHERE next_review <= CURRENT_TIMESTAMP").get() as any;
-    
+    const todayStr = new Date().toISOString().split("T")[0];
+    const todayRow = db.prepare("SELECT words_learned FROM stats WHERE date = ?").get(todayStr) as { words_learned: number } | undefined;
+    const todayReviewed = todayRow?.words_learned ?? 0;
+
     // Calculate streak
     const stats = db.prepare("SELECT date FROM stats ORDER BY date DESC LIMIT 30").all() as any[];
     let currentStreak = 0;
@@ -347,8 +368,11 @@ async function startServer() {
       }
     }
 
-    res.json({ total: total.count, due: due.count, streak: currentStreak });
+    res.json({ total: total.count, due: due.count, streak: currentStreak, todayReviewed });
   });
+
+  // Health check for Railway/Render
+  app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
@@ -357,11 +381,14 @@ async function startServer() {
       appType: "spa",
     });
     app.use(vite.middlewares);
-  } else {
+  } else if (existsSync(path.join(__dirname, "dist"))) {
     app.use(express.static(path.join(__dirname, "dist")));
     app.get("*", (req, res) => {
       res.sendFile(path.join(__dirname, "dist/index.html"));
     });
+  } else {
+    // API-only deployment (e.g. Railway) — frontend on Vercel
+    app.use((_req, res) => res.status(404).json({ error: "Not found. API-only deployment." }));
   }
 
   app.listen(PORT, "0.0.0.0", () => {

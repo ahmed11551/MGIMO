@@ -20,6 +20,11 @@ const api = async (path: string, body: object) => {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
+    if (res.status === 405) {
+      throw new Error(
+        "API недоступен. Убедитесь, что бэкенд развёрнут (Railway) и VITE_API_URL задан на Vercel."
+      );
+    }
     throw new Error(err.error || `API error ${res.status}`);
   }
   return res.json();
