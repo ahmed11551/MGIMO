@@ -25,13 +25,24 @@ if (!BOT_TOKEN) {
 
 const API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
+// In-memory state для ролевых сценариев
+// chatId -> { mode: 'diplomat' | 'exam', history: { role, text }[] }
+const roleplayState = new Map();
+
 function loadReminders() {
   try {
     if (existsSync(REMINDERS_FILE)) {
-      return JSON.parse(readFileSync(REMINDERS_FILE, 'utf8'));
+      const data = JSON.parse(readFileSync(REMINDERS_FILE, 'utf8'));
+      // Поддержка старого формата { chatIds: [] } или просто массива
+      if (!data || Array.isArray(data)) {
+        return { chatIds: Array.isArray(data) ? data : [], missions: {} };
+      }
+      if (!data.chatIds) data.chatIds = [];
+      if (!data.missions) data.missions = {};
+      return data;
     }
   } catch {}
-  return { chatIds: [] };
+  return { chatIds: [], missions: {} };
 }
 
 function saveReminders(data) {
@@ -57,6 +68,21 @@ const TIPS = [
   'Streak мотивирует: не рви цепочку 🔥',
 ];
 
+const MISSIONS = [
+  'Возьми 5 сложных слов из своего словаря и составь по одному предложению к каждому. Можешь прислать их сюда — я дам фидбэк.',
+  'Выбери тему (дипломатия, право, экономика) и напиши мини-абзац из 3–4 предложений, используя минимум 3 целевых слова.',
+  'Опиши свой день в формате краткого брифинга для посла: 4–5 предложений, формальный стиль.',
+  'Сформулируй позицию государства по одной актуальной теме (санкции, климат, безопасность) в 4–5 предложениях.',
+  'Напиши письмо коллеге-дипломату с просьбой о встрече: приветствие, цель, время, вежливое завершение.',
+];
+
+const ROLEPLAY_SCENARIOS = {
+  diplomat:
+    'Ты экзаменатор на устном собеседовании в МГИМО по направлению «Международные отношения». Задавай вопросы на английском про дипломатию, переговоры, международные организации. По каждому ответу давай короткий фидбэк и оценку от 1 до 10. Не используй русский язык.',
+  exam:
+    'Ты строгий экзаменатор по международному праву на английском языке. Задавай по одному вопросу, проси приводить примеры и давать определения. Отвечай только на английском. После каждого ответа давай краткий комментарий и балл от 1 до 10.',
+};
+
 async function api(method, body = {}) {
   const res = await fetch(`${API}/${method}`, {
     method: 'POST',
@@ -68,6 +94,128 @@ async function api(method, body = {}) {
   return data;
 }
 
+function getDailyMissionText() {
+  const today = new Date().toISOString().split('T')[0];
+  const seed = today
+    .split('-')
+    .map((x) => parseInt(x, 10) || 0)
+    .reduce((a, b) => a + b, 0);
+  const idx = Math.abs(seed) % MISSIONS.length;
+  return `🎯 Миссия на сегодня (${today}):\n\n${MISSIONS[idx]}\n\nМожешь выполнить её прямо в чате или в приложении.`;
+}
+
+async function sendMission(chatId) {
+  try {
+    const text = getDailyMissionText();
+    await api('sendMessage', {
+      chat_id: chatId,
+      text,
+      reply_markup: {
+        inline_keyboard: [[{ text: '📖 Открыть приложение', web_app: { url: APP_URL } }]],
+      },
+    });
+  } catch (e) {
+    console.error('sendMission:', e.message);
+  }
+}
+
+async function sendProfile(chatId) {
+  try {
+    const res = await fetch(`${API_URL}/api/stats`);
+    if (!res.ok) throw new Error(`API ${res.status}`);
+    const { total, due, streak, todayReviewed } = await res.json();
+    const text = `📊 Профиль прогресса\n\n` +
+      `Слов в словаре: ${total}\n` +
+      `На повторение: ${due}\n` +
+      `Серия дней (streak): ${streak} 🔥\n` +
+      `Сегодня выучено / повторено: ${todayReviewed}\n\n` +
+      `Продолжай в том же духе! Открой приложение, чтобы увидеть детальную аналитику.`;
+
+    await api('sendMessage', {
+      chat_id: chatId,
+      text,
+      reply_markup: {
+        inline_keyboard: [[{ text: '📖 Открыть приложение', web_app: { url: APP_URL } }]],
+      },
+    });
+  } catch (e) {
+    console.error('sendProfile:', e.message);
+    await api('sendMessage', {
+      chat_id: chatId,
+      text: '⚠️ Не удалось загрузить профиль. Проверьте, что бэкенд (API_URL) запущен.',
+    });
+  }
+}
+
+async function startRoleplay(chatId, rawMode) {
+  const mode = rawMode === 'exam' ? 'exam' : 'diplomat';
+  const systemPrompt = ROLEPLAY_SCENARIOS[mode];
+  roleplayState.set(chatId, { mode, history: [] });
+  try {
+    const res = await fetch(`${API_URL}/api/ai/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message:
+          `Начни ролевую игру в режиме "${mode}". Дай первое задание или вопрос только на английском, максимум в двух-трёх предложениях. Не пиши перевод и не используй русский язык.`,
+        history: [],
+        targetWords: [],
+      }),
+    });
+    if (!res.ok) throw new Error(`API ${res.status}`);
+    const json = await res.json();
+    const reply = json.response || 'Let\'s start our roleplay. Please answer in English.';
+    const state = roleplayState.get(chatId);
+    if (state) {
+      state.history.push({ role: 'assistant', text: reply, system: systemPrompt });
+      roleplayState.set(chatId, state);
+    }
+    await api('sendMessage', {
+      chat_id: chatId,
+      text: `🎭 Ролевой режим: ${mode === 'diplomat' ? 'дипломатическое собеседование' : 'экзамен по праву'}.\n\n` +
+        `Отвечай на английском. Чтобы выйти, набери /stop.\n\n` +
+        reply,
+    });
+  } catch (e) {
+    console.error('startRoleplay:', e.message);
+    await api('sendMessage', {
+      chat_id: chatId,
+      text: '⚠️ Не удалось запустить ролевой режим. Проверьте, что AI API доступен (GEMINI_API_KEY, API_URL).',
+    });
+  }
+}
+
+async function continueRoleplay(chatId, userText) {
+  const state = roleplayState.get(chatId);
+  if (!state) return;
+  try {
+    const history = state.history || [];
+    history.push({ role: 'user', text: userText });
+    const trimmedHistory = history.slice(-10);
+    const res = await fetch(`${API_URL}/api/ai/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: userText,
+        history: trimmedHistory,
+        targetWords: [],
+      }),
+    });
+    if (!res.ok) throw new Error(`API ${res.status}`);
+    const json = await res.json();
+    const reply = json.response || 'Thank you. Please continue.';
+    trimmedHistory.push({ role: 'assistant', text: reply });
+    state.history = trimmedHistory;
+    roleplayState.set(chatId, state);
+    await api('sendMessage', { chat_id: chatId, text: reply });
+  } catch (e) {
+    console.error('continueRoleplay:', e.message);
+    await api('sendMessage', {
+      chat_id: chatId,
+      text: '⚠️ Не удалось получить ответ от AI. Попробуй ещё раз чуть позже или выйди из режима командой /stop.',
+    });
+  }
+}
 function sendWelcome(chatId, startPayload = '') {
   const refNote = startPayload.startsWith('ref_') ? `\n\n👥 Реферальная ссылка: ${startPayload}` : '';
   return api('sendMessage', {
@@ -80,7 +228,20 @@ function sendWelcome(chatId, startPayload = '') {
 🤖 AI генерирует примеры, картинки, озвучку
 📝 Истории и чат-тьютор для практики
 
-Приложение открыто для всех — не только для студентов МГИМО. Нажми кнопку ниже и начни учиться!${refNote}`,
+Приложение открыто для всех — не только для студентов МГИМО.
+
+Команды бота:
+/profile — твой прогресс
+/mission — миссия дня
+/word или /daily — слово дня
+/words [N] — N случайных слов
+/words дипломатия — слова по теме международных отношений
+/quiz — мини-квиз по лексике
+/tip — совет по обучению
+/roleplay — ролевая практика (дипломат / экзамен)
+/remind — вкл/выкл напоминания
+
+Нажми кнопку ниже и начни учиться!${refNote}`,
     reply_markup: {
       inline_keyboard: [[
         { text: '📖 Открыть приложение', web_app: { url: startPayload ? `${APP_URL}?ref=${encodeURIComponent(startPayload)}` : APP_URL } },
@@ -151,6 +312,54 @@ async function sendWords(chatId, count = 1, categoryId = null) {
   }
 }
 
+async function sendQuiz(chatId, questionsCount = 3) {
+  try {
+    const poolCount = Math.max(questionsCount * 3, 8);
+    const res = await fetch(`${API_URL}/api/words/random?count=${poolCount}`);
+    if (!res.ok) throw new Error(`API ${res.status}`);
+    const data = await res.json();
+    const words = data.words || [];
+    if (!words || words.length < 4) {
+      return api('sendMessage', {
+        chat_id: chatId,
+        text: 'Для квиза нужно как минимум 4 слова в словаре. Добавь ещё слова в приложении.',
+        reply_markup: { inline_keyboard: [[{ text: '📖 Открыть приложение', web_app: { url: APP_URL } }]] },
+      });
+    }
+
+    const shuffled = [...words].sort(() => 0.5 - Math.random());
+    const qCount = Math.min(questionsCount, Math.floor(shuffled.length / 4) || 1);
+    const letters = ['A', 'B', 'C', 'D'];
+    let text = '🧠 Мини-квиз по дипломатической лексике\n\n';
+    const answers = [];
+
+    for (let i = 0; i < qCount; i++) {
+      const correct = shuffled[i];
+      const others = shuffled.filter((w) => w.word !== correct.word).sort(() => 0.5 - Math.random()).slice(0, 3);
+      const options = [correct, ...others].sort(() => 0.5 - Math.random());
+      const correctIndex = options.findIndex((w) => w.word === correct.word);
+      answers.push(letters[correctIndex]);
+
+      text += `${i + 1}. ${correct.word} — выбери правильный перевод:\n`;
+      options.forEach((w, idx) => {
+        text += `  ${letters[idx]}) ${w.translation || '—'}\n`;
+      });
+      text += '\n';
+    }
+
+    text += `Ответы: ${answers.map((a, i) => `${i + 1}${a}`).join(', ')}\n\n` +
+      'Можешь прислать свои ответы, а я помогу разобрать ошибки.';
+
+    await api('sendMessage', { chat_id: chatId, text });
+  } catch (e) {
+    console.error('sendQuiz:', e.message);
+    await api('sendMessage', {
+      chat_id: chatId,
+      text: '⚠️ Не удалось собрать квиз. Проверь, что бэкенд запущен и в словаре есть слова.',
+    });
+  }
+}
+
 async function poll() {
   let offset = 0;
   console.log('Бот запущен. Ожидание сообщений...\n');
@@ -162,7 +371,8 @@ async function poll() {
         const msg = u.message;
         if (!msg?.text) continue;
         const chatId = msg.chat.id;
-        const text = msg.text.trim().toLowerCase();
+        const originalText = msg.text.trim();
+        const text = originalText.toLowerCase();
         const startPayload = msg.text?.startsWith('/start ') ? msg.text.slice(7).trim() : '';
         if (text === '/start' || text.startsWith('/start ')) {
           await sendWelcome(chatId, startPayload);
@@ -194,6 +404,10 @@ async function poll() {
           });
         } else if (text === '/tip') {
           await sendTip(chatId);
+        } else if (text === '/profile') {
+          await sendProfile(chatId);
+        } else if (text === '/mission' || text === '/quest') {
+          await sendMission(chatId);
         } else if (text === '/word' || text === '/daily') {
           await sendWords(chatId, 1);
         } else if (text === '/words' || text.startsWith('/words ')) {
@@ -207,11 +421,34 @@ async function poll() {
             if (cat) categoryId = cat;
           }
           await sendWords(chatId, count, categoryId);
+        } else if (text === '/quiz') {
+          await sendQuiz(chatId);
+        } else if (text === '/roleplay' || text.startsWith('/roleplay ')) {
+          const modeArg = text.split(' ')[1] || 'diplomat';
+          await startRoleplay(chatId, modeArg);
+        } else if (text === '/stop') {
+          if (roleplayState.has(chatId)) {
+            roleplayState.delete(chatId);
+            await api('sendMessage', {
+              chat_id: chatId,
+              text: 'Ролевой режим остановлен. Можно вернуться к обычным командам.',
+            });
+          } else {
+            await api('sendMessage', {
+              chat_id: chatId,
+              text: 'Сейчас ролевой режим не активен. Чтобы начать, используй /roleplay.',
+            });
+          }
         } else if (text.startsWith('/')) {
           await api('sendMessage', {
             chat_id: chatId,
-            text: 'Команды: /start — приветствие, /app — открыть приложение, /word или /daily — слово дня, /words [N] — N слов, /tip — совет, /remind — вкл/выкл напоминания.',
+            text: 'Команды: /start — приветствие, /app — открыть приложение, /profile — профиль, /mission — миссия дня, /word или /daily — слово дня, /words [N] — N слов, /words дипломатия — дипломатическая лексика, /quiz — мини-квиз, /tip — совет, /roleplay — ролевая практика, /remind — вкл/выкл напоминания.',
           });
+        } else {
+          // Обычное сообщение: если активен ролевой режим — продолжаем диалог
+          if (roleplayState.has(chatId)) {
+            await continueRoleplay(chatId, originalText);
+          }
         }
       }
     } catch (e) {
@@ -244,6 +481,14 @@ async function sendScheduledReminders() {
         });
         await new Promise((x) => setTimeout(x, 400));
       }
+      // Добавляем миссию дня в напоминание
+      const missionText = getDailyMissionText();
+      await api('sendMessage', {
+        chat_id: chatId,
+        text: missionText,
+        reply_markup: { inline_keyboard: [[{ text: '📖 Открыть МГИМО AI', web_app: { url: APP_URL } }]] },
+      });
+      await new Promise((x) => setTimeout(x, 400));
       await api('sendMessage', {
         chat_id: chatId,
         text: '⏰ Пора повторить слова! Даже 5 минут в день дают результат.',
