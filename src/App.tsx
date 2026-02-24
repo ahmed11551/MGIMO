@@ -24,8 +24,6 @@ import {
   Copy,
   LayoutGrid,
   List,
-  Moon,
-  Sun,
   Bell,
   Target
 } from 'lucide-react';
@@ -106,13 +104,6 @@ export default function App() {
   const [importFormat, setImportFormat] = useState<'json' | 'csv' | 'text'>('text');
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [selectedWordDetail, setSelectedWordDetail] = useState<Word | null>(null);
-  const [darkMode, setDarkMode] = useState(() => {
-    try {
-      return localStorage.getItem('mgimo-dark') === '1';
-    } catch {
-      return false;
-    }
-  });
   const [notificationsEnabled, setNotificationsEnabled] = useState(() => {
     try {
       return localStorage.getItem('mgimo-notifications') === '1';
@@ -147,12 +138,6 @@ export default function App() {
     }
   }, []);
 
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', darkMode);
-    try {
-      localStorage.setItem('mgimo-dark', darkMode ? '1' : '0');
-    } catch {}
-  }, [darkMode]);
 
   // Push-уведомление о повторениях (раз в день при due > 0)
   useEffect(() => {
@@ -288,32 +273,44 @@ export default function App() {
   };
 
   const saveGeneratedWords = async () => {
+    if (generatedWords.length === 0) return;
     setLoading(true);
     const topicCatId = categories.find(c => c.name === lastGeneratedTopic)?.id ?? selectedCategoryId;
+    let saved = 0;
     for (const w of generatedWords) {
-      await fetch(API_BASE + '/api/words', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          word: w.word,
-          translation: w.translation,
-          transcription: w.transcription,
-          example: w.example,
-          example_translation: w.example_translation,
-          image_url: null,
-          category_id: topicCatId
-        })
-      });
+      try {
+        const res = await fetch(API_BASE + '/api/words', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            word: w.word,
+            translation: w.translation,
+            transcription: w.transcription,
+            example: w.example,
+            example_translation: w.example_translation,
+            image_url: null,
+            category_id: topicCatId
+          })
+        });
+        if (res.ok) saved++;
+      } catch {
+        toast(`Сохранено ${saved} из ${generatedWords.length}. Ошибка сети.`, 'error');
+        setLoading(false);
+        return;
+      }
     }
+    const total = generatedWords.length;
     setGeneratedWords([]);
     fetchWords();
     fetchStats();
     setView('dashboard');
+    toast(saved === total ? `Добавлено слов: ${saved}` : `Добавлено ${saved} из ${total}`, saved === total ? 'success' : 'info');
     setLoading(false);
   };
 
   const handleReview = async (quality: number) => {
     const word = dueWords[currentLearnIndex];
+    if (!word) return;
     try {
       const res = await fetch(API_BASE + `/api/words/${word.id}/review`, {
         method: 'POST',
@@ -337,7 +334,13 @@ export default function App() {
   };
 
   const playAudio = async (text: string) => {
-    const base64Data = await generateSpeech(text);
+    let base64Data: string | null = null;
+    try {
+      base64Data = await generateSpeech(text);
+    } catch {
+      toast('Ошибка озвучки. Проверьте подключение к API.', 'error');
+      return;
+    }
     if (!base64Data) return;
 
     try {
@@ -673,14 +676,14 @@ export default function App() {
 
               {/* Daily Goal */}
               {!statsLoading && dailyGoal > 0 && (
-                <div className="bg-white dark:!bg-slate-800 rounded-2xl p-4 card-shadow">
+                <div className="bg-white rounded-2xl p-4 card-shadow">
                   <div className="flex justify-between items-center mb-2">
                     <span className="text-sm font-semibold text-brand-primary">Цель дня</span>
                     <span className="text-sm text-slate-500">
                       {Math.min(stats.todayReviewed ?? 0, dailyGoal)} / {dailyGoal} слов
                     </span>
                   </div>
-                  <div className="h-2.5 bg-slate-100 dark:!bg-slate-700 rounded-full overflow-hidden">
+                  <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
                     <motion.div
                       className="h-full bg-gradient-to-r from-brand-primary to-accent rounded-full"
                       initial={{ width: 0 }}
@@ -696,13 +699,13 @@ export default function App() {
                 <motion.div
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="bg-gradient-to-br from-brand-primary/10 to-accent/10 dark:from-brand-primary/20 dark:to-accent/20 rounded-2xl p-4 border border-brand-primary/20"
+                  className="bg-gradient-to-br from-brand-primary/10 to-accent/10 rounded-2xl p-4 border border-brand-primary/20"
                 >
                   <p className="text-xs font-bold text-brand-primary uppercase tracking-wider mb-2">📖 Слово дня</p>
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="font-display font-bold text-lg text-brand-primary">{wordOfTheDay.word}</p>
-                      <p className="text-slate-500 dark:text-slate-400 text-sm">{wordOfTheDay.translation}</p>
+                      <p className="text-slate-500 text-sm">{wordOfTheDay.translation}</p>
                     </div>
                     <button
                       onClick={() => { setView('learn'); }}
@@ -793,7 +796,7 @@ export default function App() {
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: index * 0.05 }}
                       onClick={() => setSelectedWordDetail(word)}
-                      className="w-full bg-white dark:!bg-slate-800 p-4 rounded-2xl flex items-center justify-between card-shadow text-left hover:shadow-lg hover:border-brand-primary/20 border border-transparent transition-all duration-200 active:scale-[0.99]"
+                      className="w-full bg-white p-4 rounded-2xl flex items-center justify-between card-shadow text-left hover:shadow-lg hover:border-brand-primary/20 border border-transparent transition-all duration-200 active:scale-[0.99]"
                     >
                       <div className="flex items-center gap-3">
                         {word.image_url ? (
@@ -1144,9 +1147,9 @@ export default function App() {
               </div>
 
               <div className="flex-1 flex flex-col items-center justify-center">
-                <div className="w-full bg-white dark:!bg-slate-800 rounded-[40px] card-shadow p-8 flex flex-col items-center justify-center mb-8">
+                <div className="w-full bg-white rounded-[40px] card-shadow p-8 flex flex-col items-center justify-center mb-8">
                   {quizMode === 'cloze' ? (
-                    <p className="text-lg md:text-xl text-center text-slate-700 dark:text-slate-200 leading-relaxed">
+                    <p className="text-lg md:text-xl text-center text-slate-700 leading-relaxed">
                       {currentQuizWord.example?.replace(
                         new RegExp(currentQuizWord.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'),
                         '_____'
@@ -1167,7 +1170,7 @@ export default function App() {
                     <button 
                       key={idx}
                       onClick={() => handleQuizAnswer(opt)}
-                      className="w-full p-5 bg-white dark:!bg-slate-800 rounded-2xl card-shadow text-left font-semibold text-slate-700 dark:text-slate-200 hover:bg-brand-primary hover:text-white transition-colors"
+                      className="w-full p-5 bg-white rounded-2xl card-shadow text-left font-semibold text-slate-700 hover:bg-brand-primary hover:text-white transition-colors"
                     >
                       {opt}
                     </button>
@@ -1470,7 +1473,7 @@ export default function App() {
                             <td className="p-3"><span className="text-[10px] bg-brand-primary/10 text-brand-primary px-2 py-0.5 rounded-full font-bold">LVL {word.level}</span></td>
                             <td className="p-3 flex gap-1">
                               <button onClick={() => copyWord(word)} className={`p-1.5 rounded-lg transition-colors ${copiedId === word.id ? 'text-emerald-500 bg-emerald-50' : 'text-slate-300 hover:text-brand-primary hover:bg-slate-100'}`} title={copiedId === word.id ? 'Скопировано' : 'Копировать'}><Copy size={16} /></button>
-                              <button onClick={() => deleteWord(word.id)} className="p-1.5 text-slate-300 hover:text-rose-500 rounded-lg hover:bg-rose-50 dark:hover:!bg-rose-900/20" aria-label={`Удалить ${word.word}`}><Trash2 size={16} /></button>
+                              <button onClick={() => deleteWord(word.id)} className="p-1.5 text-slate-300 hover:text-rose-500 rounded-lg hover:bg-rose-50" aria-label={`Удалить ${word.word}`}><Trash2 size={16} /></button>
                             </td>
                           </tr>
                         ))}
@@ -1553,30 +1556,9 @@ export default function App() {
 
               <div className="space-y-4">
                 <div className="bg-white rounded-2xl p-5 card-shadow">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center">
-                        {darkMode ? <Moon size={20} className="text-slate-600" /> : <Sun size={20} className="text-amber-500" />}
-                      </div>
-                      <div>
-                        <p className="font-bold text-brand-primary">Тёмная тема</p>
-                        <p className="text-xs text-slate-500">{darkMode ? 'Включена' : 'Выключена'}</p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setDarkMode(!darkMode)}
-                      className={`relative w-12 h-7 rounded-full transition-colors ${darkMode ? 'bg-brand-primary' : 'bg-slate-200'}`}
-                      aria-label={darkMode ? 'Выключить тёмную тему' : 'Включить тёмную тему'}
-                    >
-                      <div className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${darkMode ? 'translate-x-6' : 'translate-x-1'}`} />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="bg-white dark:!bg-slate-800 rounded-2xl p-5 card-shadow">
                   <div className="flex items-center justify-between flex-wrap gap-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-slate-100 dark:!bg-slate-700 rounded-xl flex items-center justify-center">
+                      <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center">
                         <Target size={20} className="text-brand-primary" />
                       </div>
                       <div>
@@ -1592,7 +1574,7 @@ export default function App() {
                             setDailyGoal(n);
                             try { localStorage.setItem('mgimo-daily-goal', String(n)); } catch {}
                           }}
-                          className={`w-10 h-10 rounded-xl font-bold text-sm transition-colors ${dailyGoal === n ? 'bg-brand-primary text-white' : 'bg-slate-100 dark:!bg-slate-700 text-slate-600'}`}
+                          className={`w-10 h-10 rounded-xl font-bold text-sm transition-colors ${dailyGoal === n ? 'bg-brand-primary text-white' : 'bg-slate-100 text-slate-600'}`}
                         >
                           {n}
                         </button>
@@ -1601,10 +1583,10 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="bg-white dark:!bg-slate-800 rounded-2xl p-5 card-shadow">
+                <div className="bg-white rounded-2xl p-5 card-shadow">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-slate-100 dark:!bg-slate-700 rounded-xl flex items-center justify-center">
+                      <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center">
                         <Bell size={20} className="text-slate-600" />
                       </div>
                       <div>
@@ -1712,7 +1694,7 @@ export default function App() {
         </button>
         <button 
           onClick={() => setView('add')}
-          className="w-14 h-14 bg-gradient-to-br from-brand-primary to-brand-secondary text-white rounded-2xl flex items-center justify-center shadow-xl shadow-brand-primary/30 -mt-10 border-4 border-white dark:border-slate-900 hover:scale-105 active:scale-95 transition-transform duration-200"
+          className="w-14 h-14 bg-gradient-to-br from-brand-primary to-brand-secondary text-white rounded-2xl flex items-center justify-center shadow-xl shadow-brand-primary/30 -mt-10 border-4 border-white hover:scale-105 active:scale-95 transition-transform duration-200"
           aria-label="Добавить слово"
         >
           <Plus size={32} />

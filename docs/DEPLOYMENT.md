@@ -1,11 +1,15 @@
 # Деплой МГИМО AI
 
+## Хостинг
+
+**Целевой хостинг:** https://play2go.cloud (вход при необходимости: `/auth?to=/me`).
+
 ## Архитектура
 
 SQLite **не поддерживается** на Vercel (read-only FS в serverless). Рекомендуемая схема:
 
-- **Frontend** → Vercel (статический билд)
-- **Backend** (Express + SQLite) → Railway или Render
+- **Frontend** → Vercel / play2go.cloud (статический билд)
+- **Backend** (Express + SQLite) → Railway, Render или тот же play2go.cloud
 
 ## 1. Backend на Railway
 

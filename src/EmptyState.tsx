@@ -25,12 +25,12 @@ export function EmptyState({
       transition={{ duration: 0.3 }}
       className={`flex flex-col items-center justify-center py-12 px-6 text-center ${className}`}
     >
-      <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-brand-primary/10 to-accent/10 dark:from-brand-primary/20 dark:to-accent/20 flex items-center justify-center mb-4">
+      <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-brand-primary/10 to-accent/10 flex items-center justify-center mb-4">
         <Icon size={36} className="text-brand-primary" />
       </div>
       <h3 className="font-display font-bold text-lg text-brand-primary mb-2">{title}</h3>
       {description && (
-        <p className="text-slate-500 dark:text-slate-400 text-sm max-w-[280px] mb-6 leading-relaxed">
+        <p className="text-slate-500 text-sm max-w-[280px] mb-6 leading-relaxed">
           {description}
         </p>
       )}

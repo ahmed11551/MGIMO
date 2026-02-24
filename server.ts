@@ -108,6 +108,9 @@ async function startServer() {
 
   app.post("/api/words", (req, res) => {
     const { word, translation, transcription, example, example_translation, image_url, category_id } = req.body;
+    if (!word || String(word).trim() === "") {
+      return res.status(400).json({ error: "word is required" });
+    }
     const info = db.prepare(
       "INSERT INTO words (word, translation, transcription, example, example_translation, image_url, category_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
     ).run(word, translation, transcription, example, example_translation, image_url, category_id || null);

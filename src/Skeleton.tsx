@@ -1,14 +1,14 @@
 export function SkeletonCard() {
   return (
-    <div className="bg-white dark:!bg-slate-800 p-4 rounded-2xl flex items-center justify-between card-shadow skeleton-shimmer">
+    <div className="bg-white p-4 rounded-2xl flex items-center justify-between card-shadow skeleton-shimmer">
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 bg-slate-200 dark:!bg-slate-600 rounded-lg" />
+        <div className="w-10 h-10 bg-slate-200 rounded-lg" />
         <div className="space-y-2">
-          <div className="h-4 w-24 bg-slate-200 dark:!bg-slate-600 rounded" />
-          <div className="h-3 w-16 bg-slate-100 dark:!bg-slate-700 rounded" />
+          <div className="h-4 w-24 bg-slate-200 rounded" />
+          <div className="h-3 w-16 bg-slate-100 rounded" />
         </div>
       </div>
-      <div className="h-6 w-12 bg-slate-100 dark:!bg-slate-700 rounded-full" />
+      <div className="h-6 w-12 bg-slate-100 rounded-full" />
     </div>
   );
 }

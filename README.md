@@ -59,12 +59,12 @@ NODE_ENV=production npm run dev
 ## Telegram Mini App
 
 **Бот:** [@MGIMOOUIZMODE_bot](https://t.me/MGIMOOUIZMODE_bot)  
-**Приложение:** https://mgimo-ochre.vercel.app
+**Приложение:** целевой хостинг — https://play2go.cloud (вход при необходимости: `/auth?to=/me`).
 
 ### Настройка бота (команды, меню, описание)
 
 ```bash
-BOT_TOKEN=xxx APP_URL=https://mgimo-ochre.vercel.app npm run bot:setup
+BOT_TOKEN=xxx APP_URL=https://play2go.cloud npm run bot:setup
 ```
 
 Скрипт устанавливает: команды `/start`, `/app`, `/word`, `/words`, `/tip`, `/remind`, описание, кнопку меню с Web App URL.

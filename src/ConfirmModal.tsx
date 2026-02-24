@@ -39,7 +39,7 @@ export function ConfirmModal({
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="relative bg-white dark:!bg-slate-800 rounded-2xl p-6 shadow-xl max-w-sm w-full border border-slate-200 dark:!border-slate-600"
+            className="relative bg-white rounded-2xl p-6 shadow-xl max-w-sm w-full border border-slate-200"
             role="dialog"
             aria-modal="true"
             aria-labelledby="confirm-title"
@@ -47,15 +47,15 @@ export function ConfirmModal({
           >
             <div className="flex items-start gap-4">
               <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${
-                danger ? 'bg-rose-100 dark:!bg-rose-900/30 text-rose-600' : 'bg-amber-100 dark:!bg-amber-900/30 text-amber-600'
+                danger ? 'bg-rose-100 text-rose-600' : 'bg-amber-100 text-amber-600'
               }`}>
                 <AlertTriangle size={24} />
               </div>
               <div className="flex-1 min-w-0">
-                <h2 id="confirm-title" className="font-bold text-lg text-slate-900 dark:!text-slate-100">
+                <h2 id="confirm-title" className="font-bold text-lg text-slate-900">
                   {title}
                 </h2>
-                <p id="confirm-desc" className="mt-1 text-sm text-slate-500 dark:!text-slate-400">
+                <p id="confirm-desc" className="mt-1 text-sm text-slate-500">
                   {message}
                 </p>
               </div>
@@ -63,7 +63,7 @@ export function ConfirmModal({
             <div className="mt-6 flex gap-3 justify-end">
               <button
                 onClick={onCancel}
-                className="px-4 py-2 rounded-xl font-medium text-slate-600 dark:!text-slate-400 hover:bg-slate-100 dark:hover:!bg-slate-700 transition-colors"
+                className="px-4 py-2 rounded-xl font-medium text-slate-600 hover:bg-slate-100 transition-colors"
               >
                 {cancelLabel}
               </button>

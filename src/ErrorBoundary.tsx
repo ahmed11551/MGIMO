@@ -28,13 +28,13 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-bg-main text-slate-900 dark:bg-slate-900 dark:text-slate-100">
+        <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-bg-main text-slate-900">
           <div className="max-w-md w-full text-center">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-rose-100 dark:!bg-rose-900/30 flex items-center justify-center">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-rose-100 flex items-center justify-center">
               <AlertTriangle size={32} className="text-rose-600" />
             </div>
             <h1 className="font-display font-bold text-xl mb-2">Что-то пошло не так</h1>
-            <p className="text-slate-500 dark:!text-slate-400 text-sm mb-6">
+            <p className="text-slate-500 text-sm mb-6">
               Произошла ошибка. Попробуйте обновить страницу или вернуться позже.
             </p>
             <button
