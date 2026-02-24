@@ -25,9 +25,11 @@ if (!BOT_TOKEN) {
 
 const API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
-// In-memory state для ролевых сценариев
+// In-memory state для ролевых сценариев и квиза
 // chatId -> { mode: 'diplomat' | 'exam', history: { role, text }[] }
 const roleplayState = new Map();
+// chatId -> { questions: QuizQuestion[], index: number, score: number }
+const quizState = new Map();
 
 function loadReminders() {
   try {
@@ -330,33 +332,115 @@ async function sendQuiz(chatId, questionsCount = 3) {
     const shuffled = [...words].sort(() => 0.5 - Math.random());
     const qCount = Math.min(questionsCount, Math.floor(shuffled.length / 4) || 1);
     const letters = ['A', 'B', 'C', 'D'];
-    let text = '🧠 Мини-квиз по дипломатической лексике\n\n';
-    const answers = [];
+    const questions = [];
 
     for (let i = 0; i < qCount; i++) {
       const correct = shuffled[i];
-      const others = shuffled.filter((w) => w.word !== correct.word).sort(() => 0.5 - Math.random()).slice(0, 3);
-      const options = [correct, ...others].sort(() => 0.5 - Math.random());
-      const correctIndex = options.findIndex((w) => w.word === correct.word);
-      answers.push(letters[correctIndex]);
-
-      text += `${i + 1}. ${correct.word} — выбери правильный перевод:\n`;
-      options.forEach((w, idx) => {
-        text += `  ${letters[idx]}) ${w.translation || '—'}\n`;
-      });
-      text += '\n';
+      const others = shuffled
+        .filter((w) => w.word !== correct.word)
+        .sort(() => 0.5 - Math.random())
+        .slice(0, 3);
+      const optionsPool = [correct, ...others].sort(() => 0.5 - Math.random());
+      const options = optionsPool.map((w, idx) => ({
+        letter: letters[idx],
+        translation: w.translation || '—',
+        isCorrect: w.word === correct.word,
+      }));
+      questions.push({ word: correct.word, options });
     }
 
-    text += `Ответы: ${answers.map((a, i) => `${i + 1}${a}`).join(', ')}\n\n` +
-      'Можешь прислать свои ответы, а я помогу разобрать ошибки.';
+    quizState.set(chatId, { questions, index: 0, score: 0 });
 
-    await api('sendMessage', { chat_id: chatId, text });
+    await api('sendMessage', {
+      chat_id: chatId,
+      text: '🧠 Мини-квиз по дипломатической лексике. Отвечай, нажимая на кнопки A/B/C/D.',
+    });
+
+    await sendQuizQuestion(chatId);
   } catch (e) {
     console.error('sendQuiz:', e.message);
     await api('sendMessage', {
       chat_id: chatId,
       text: '⚠️ Не удалось собрать квиз. Проверь, что бэкенд запущен и в словаре есть слова.',
     });
+  }
+}
+
+async function sendQuizQuestion(chatId) {
+  const state = quizState.get(chatId);
+  if (!state) return;
+  const { questions, index } = state;
+  const question = questions[index];
+  if (!question) return;
+
+  const keyboard = [
+    question.options.map((opt) => ({
+      text: `${opt.letter}) ${opt.translation}`,
+      callback_data: `quiz:${index}:${opt.letter}`,
+    })),
+  ];
+
+  const text = `Вопрос ${index + 1}/${questions.length}\n\n` +
+    `${question.word} — выбери правильный перевод:`;
+
+  await api('sendMessage', {
+    chat_id: chatId,
+    text,
+    reply_markup: { inline_keyboard: keyboard },
+  });
+}
+
+async function handleQuizCallback(callbackQuery) {
+  const data = callbackQuery.data || '';
+  if (!data.startsWith('quiz:')) return;
+  const chatId = callbackQuery.message?.chat?.id;
+  if (!chatId) return;
+
+  const parts = data.split(':');
+  const index = parseInt(parts[1] || '0', 10) || 0;
+  const letter = parts[2];
+
+  const state = quizState.get(chatId);
+  if (!state) {
+    await api('answerCallbackQuery', {
+      callback_query_id: callbackQuery.id,
+      text: 'Квиз не найден. Набери /quiz, чтобы начать новый.',
+      show_alert: false,
+    });
+    return;
+  }
+
+  const question = state.questions[index];
+  if (!question) return;
+
+  const chosen = question.options.find((o) => o.letter === letter);
+  const correctOpt = question.options.find((o) => o.isCorrect);
+  const isCorrect = !!chosen && chosen.isCorrect;
+
+  if (isCorrect) state.score += 1;
+  quizState.set(chatId, state);
+
+  await api('answerCallbackQuery', {
+    callback_query_id: callbackQuery.id,
+    text: isCorrect ? 'Верно!' : 'Неверно',
+    show_alert: false,
+  });
+
+  let feedback = isCorrect
+    ? `✅ Верно! "${question.word}" — ${chosen.translation}.`
+    : `❌ Неверно. "${question.word}" — ${correctOpt ? correctOpt.translation : 'правильный ответ'}.`;
+
+  const isLast = index >= state.questions.length - 1;
+
+  if (isLast) {
+    quizState.delete(chatId);
+    feedback += `\n\nКвиз завершён: ${state.score}/${state.questions.length}.`;
+    await api('sendMessage', { chat_id: chatId, text: feedback });
+  } else {
+    state.index = index + 1;
+    quizState.set(chatId, state);
+    await api('sendMessage', { chat_id: chatId, text: feedback });
+    await sendQuizQuestion(chatId);
   }
 }
 
@@ -368,6 +452,10 @@ async function poll() {
       const { result } = await api('getUpdates', { offset, timeout: 30 });
       for (const u of result) {
         offset = u.update_id + 1;
+        if (u.callback_query) {
+          await handleQuizCallback(u.callback_query);
+          continue;
+        }
         const msg = u.message;
         if (!msg?.text) continue;
         const chatId = msg.chat.id;
